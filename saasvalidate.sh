@@ -347,7 +347,7 @@ root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
 if [ "$root_size_gb" -ge 250 ]; then
     pass "Root file system size is $root_size_gb GB (≥ 250GB)"
 else
-    warn "Root file system size is $root_size_gb GB (< 250GB recommended)"
+    warn "Root file system size is $root_size_gb GB (> 250GB recommended)"
 fi
 
 # Optional check: multipath-tools package installed
