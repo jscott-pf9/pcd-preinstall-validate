@@ -291,18 +291,18 @@
          lvm_global_filter_line=$(grep -E '^[[:space:]]*global_filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1)
 
          if [[ -z "$lvm_filter_line" ]]; then
-             warn "lvm2 detected but /etc/lvm/lvm.conf filter is not set (recommended to configure LVM device filters)"
+             fail "lvm2 detected but /etc/lvm/lvm.conf filter is not set (configure LVM device filters)"
          elif ! echo "$lvm_filter_line" | grep -qE '"a\|\^/dev/'; then
-             warn "lvm2 detected but /etc/lvm/lvm.conf filter does not appear to include accept rules (a|^/dev/...)"
+             fail "lvm2 detected but /etc/lvm/lvm.conf filter does not appear to include accept rules (a|^/dev/...)"
          fi
 
          if [[ -z "$lvm_global_filter_line" ]]; then
-             warn "lvm2 detected but /etc/lvm/lvm.conf global_filter is not set (recommended to configure LVM device filters)"
+             fail "lvm2 detected but /etc/lvm/lvm.conf global_filter is not set (configure LVM device filters)"
          elif ! echo "$lvm_global_filter_line" | grep -qE '"a\|\^/dev/'; then
-             warn "lvm2 detected but /etc/lvm/lvm.conf global_filter does not appear to include accept rules (a|^/dev/...)"
+             fail "lvm2 detected but /etc/lvm/lvm.conf global_filter does not appear to include accept rules (a|^/dev/...)"
          fi
      else
-         warn "lvm2 detected but /etc/lvm/lvm.conf is not readable; cannot validate LVM filter configuration"
+         fail "lvm2 detected but /etc/lvm/lvm.conf is not readable; cannot validate LVM filter configuration"
      fi
  fi
 
