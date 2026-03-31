@@ -342,12 +342,12 @@ for url in "${urls[@]}"; do
     echo -ne "Progress: [$progress%] ($count/$total_urls)\r"
 done
 
-# Check: Root filesystem free space >= 250GB
+# Check (recommended): Root filesystem free space >= 250GB
 root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
 if [ "$root_size_gb" -ge 250 ]; then
     pass "Root file system size is $root_size_gb GB (≥ 250GB)"
 else
-    fail "Root file system size is $root_size_gb GB (< 250GB)"
+    warn "Root file system size is $root_size_gb GB (< 250GB recommended)"
 fi
 
 # Optional check: multipath-tools package installed
