@@ -21,16 +21,16 @@
 
  # Output helpers
  pass() {
-     echo -e "$1 \033[0;32m✓\033[0m"
+    echo -e "\033[0;32m✓\033[0m $1"
  }
 
  fail() {
-     echo -e "$1 \033[0;31m✗\033[0m"
-     fail_count=$((fail_count + 1))
+    echo -e "\033[0;31m✗\033[0m $1"
+    fail_count=$((fail_count + 1))
  }
 
  warn() {
-     echo -e "$1 \033[0;33m!\033[0m"
+    echo -e "\033[0;33m!\033[0m $1"
  }
 
  # Check: OS must be Ubuntu 22.04 or 24.04
@@ -38,12 +38,12 @@
      # shellcheck disable=SC1091
      . /etc/os-release
  else
-     echo -e "Cannot read /etc/os-release; unable to detect OS \033[0;31m✗\033[0m"
+     fail "Cannot read /etc/os-release; unable to detect OS"
      exit 1
  fi
 
  if [[ "${ID:-}" != "ubuntu" ]] || { [[ "${VERSION_ID:-}" != "22.04" ]] && [[ "${VERSION_ID:-}" != "24.04" ]]; }; then
-     echo -e "Unsupported OS: ${PRETTY_NAME:-unknown}. This validation script supports Ubuntu 22.04 and 24.04 only \033[0;31m✗\033[0m"
+     fail "Unsupported OS: ${PRETTY_NAME:-unknown}. This validation script supports Ubuntu 22.04 and 24.04 only"
      exit 1
  fi
 
@@ -322,9 +322,9 @@
  check_url() {
      url="$1"
      if curl --output /dev/null --silent --head --fail "$url"; then
-         echo -e "$url \033[0;32m✓\033[0m" # Green checkmark
+         pass "$url"
      else
-         echo -e "$url \033[0;31m✗\033[0m" # Red X
+         fail "$url"
      fi
  }
 
@@ -349,17 +349,17 @@ echo "Root file system size: $root_size"
 # Check: Root filesystem free space >= 250GB
 root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
 if [ "$root_size_gb" -ge 250 ]; then
-    echo -e "Root file system size is \033[0;32m$root_size_gb GB\033[0m (≥ 250GB)"
+    pass "Root file system size is $root_size_gb GB (≥ 250GB)"
 else
-    echo -e "Root file system size is \033[0;31m$root_size_gb GB\033[0m (< 250GB)"
+    fail "Root file system size is $root_size_gb GB (< 250GB)"
 fi
 
 # Optional check: multipath-tools package installed
 if [[ "$check_multipath" -eq 1 ]]; then
     if dpkg -s multipath-tools >/dev/null 2>&1; then
-        echo -e "multipath-tools is \033[0;32minstalled\033[0m"
+        pass "multipath-tools is installed"
     else
-        echo -e "multipath-tools is \033[0;31mNOT installed\033[0m"
+        fail "multipath-tools is NOT installed"
     fi
 else
     echo "Skipping multipath-tools check (enable with --check-multipath or -m)"
