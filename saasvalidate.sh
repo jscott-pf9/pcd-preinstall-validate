@@ -230,6 +230,50 @@
      fi
  fi
 
+ san_present=0
+ san_reasons=()
+
+ if command -v multipath >/dev/null 2>&1; then
+     mp_out=$(multipath -ll 2>/dev/null)
+     if [[ -n "${mp_out:-}" ]] && ! echo "$mp_out" | grep -qiE '(^|[[:space:]])(no maps|no multipath)([[:space:]]|$)'; then
+         san_present=1
+         san_reasons+=("multipath maps detected")
+     fi
+ else
+     if [[ -d /dev/mapper ]]; then
+         while IFS= read -r dm_name; do
+             [[ -n "$dm_name" ]] || continue
+             if udevadm info --query=property --name="/dev/mapper/$dm_name" 2>/dev/null | grep -qE '^DM_UUID=mpath-'; then
+                 san_present=1
+                 san_reasons+=("multipath device detected (/dev/mapper/$dm_name)")
+                 break
+             fi
+         done < <(ls -1 /dev/mapper 2>/dev/null | grep -v '^control$' || true)
+     fi
+ fi
+
+ if command -v iscsiadm >/dev/null 2>&1; then
+     iscsi_sessions=$(iscsiadm -m session 2>/dev/null || true)
+     if [[ -n "${iscsi_sessions:-}" ]]; then
+         san_present=1
+         san_reasons+=("active iSCSI sessions detected")
+     fi
+ fi
+
+ if [[ -d /sys/class/fc_host ]] && compgen -G "/sys/class/fc_host/host*" >/dev/null; then
+     fc_luns=$(lsblk -dn -o TRAN 2>/dev/null | awk '$1=="fc" {print; exit}')
+     if [[ -n "${fc_luns:-}" ]]; then
+         san_present=1
+         san_reasons+=("FC-attached LUNs appear to be visible")
+     fi
+ fi
+
+ if [[ "$san_present" -eq 1 ]]; then
+     fail "SAN-backed storage appears to be presented to this host (${san_reasons[*]})"
+ else
+     pass "No SAN-backed storage detected (iSCSI/FC/multipath)"
+ fi
+
  # Check (recommended): Swap configured
  swap_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
  if [[ -n "$swap_kb" ]] && [[ "$swap_kb" -gt 0 ]]; then

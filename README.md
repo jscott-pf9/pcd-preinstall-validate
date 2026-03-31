@@ -15,6 +15,7 @@ The script performs a set of mandatory and recommended checks on a host before i
 - `cloud-init` is disabled (when installed)
 - Netplan is not using DHCP and has static addressing configured
 - Netplan bond mode sanity (warn/fail if unsupported)
+- Fails if SAN-backed storage appears to be presented already (iSCSI sessions, FC-attached LUNs, or multipath maps)
 - Swap presence (recommended)
 - LVM filter configuration when `lvm2` is installed (recommended)
 - Outbound connectivity to required endpoints (via `curl --head`)
@@ -31,6 +32,23 @@ The script performs a set of mandatory and recommended checks on a host before i
 - Bash
 - Common base utilities typically present on Ubuntu (e.g. `awk`, `grep`, `df`, `uname`, `nproc`)
 - `curl` (used for outbound connectivity checks)
+
+## Get the script
+
+Option 1: Clone the repository
+
+```bash
+git clone https://github.com/jscott-pf9/pcd-preinstall-validate.git
+cd pcd-preinstall-validate
+```
+
+Option 2: Download just the script
+
+```bash
+curl -fsSL -o saasvalidate.sh \
+  https://raw.githubusercontent.com/jscott-pf9/pcd-preinstall-validate/main/saasvalidate.sh
+chmod +x saasvalidate.sh
+```
 
 ## Usage
 
