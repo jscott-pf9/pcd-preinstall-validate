@@ -22,6 +22,7 @@
  report_format="text"
  report_file=""
  iscsi_discovery_portal=""
+ iscsi_discovery_report=""
 
  # Report data storage
  declare -a report_data
@@ -591,10 +592,13 @@
              iscsi_discovery_out=$(timeout 10s "${iscsi_discovery_cmd[@]}" 2>&1)
              iscsi_discovery_rc=$?
              if [[ "$iscsi_discovery_rc" -eq 124 ]]; then
+                 iscsi_discovery_report="(timeout)"
                  warn "iSCSI discovery timed out (portal: $iscsi_discovery_portal)"
              elif [[ "$iscsi_discovery_rc" -ne 0 ]]; then
+                 iscsi_discovery_report="$iscsi_discovery_out"
                  warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
              else
+                 iscsi_discovery_report="$iscsi_discovery_out"
                  iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
                  if [[ "$iscsi_target_count" -gt 0 ]]; then
                      pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
@@ -606,8 +610,10 @@
              iscsi_discovery_out=$("${iscsi_discovery_cmd[@]}" 2>&1)
              iscsi_discovery_rc=$?
              if [[ "$iscsi_discovery_rc" -ne 0 ]]; then
+                 iscsi_discovery_report="$iscsi_discovery_out"
                  warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
              else
+                 iscsi_discovery_report="$iscsi_discovery_out"
                  iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
                  if [[ "$iscsi_target_count" -gt 0 ]]; then
                      pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
@@ -617,6 +623,7 @@
              fi
          fi
      else
+         iscsi_discovery_report="iscsiadm not installed"
          warn "iSCSI discovery skipped: iscsiadm not installed (portal: $iscsi_discovery_portal)"
      fi
  fi
@@ -708,8 +715,8 @@ else
     echo "Skipping multipath-tools check (enable with --check-multipath or -m)"
 fi
 
-# Collect system information for report if requested
-if [[ "$generate_report" -eq 1 ]]; then
+ # Collect system information for report if requested
+ if [[ "$generate_report" -eq 1 ]]; then
     # Capture network information
     sysinfo_ip_addr=$(ip a 2>/dev/null)
     sysinfo_ip_route=$(ip route 2>/dev/null)
@@ -732,17 +739,23 @@ if [[ "$generate_report" -eq 1 ]]; then
     fi
     
     # Capture iSCSI information if available
-    sysinfo_iscsi=""
-    if command -v iscsiadm >/dev/null 2>&1; then
-        sysinfo_iscsi+="=== iSCSI Sessions ==="$'\n'
-        sysinfo_iscsi+=$(iscsiadm -m session 2>&1 || echo "No active iSCSI sessions")
-        sysinfo_iscsi+=$'\n\n'
-        sysinfo_iscsi+="=== iSCSI Nodes ==="$'\n'
-        sysinfo_iscsi+=$(iscsiadm -m node 2>&1 || echo "No iSCSI nodes configured")
-        sysinfo_iscsi+=$'\n'
-    else
-        sysinfo_iscsi="iSCSI tools not installed"
-    fi
+     sysinfo_iscsi=""
+     if command -v iscsiadm >/dev/null 2>&1; then
+         sysinfo_iscsi+="=== iSCSI Sessions ==="$'\n'
+         sysinfo_iscsi+=$(iscsiadm -m session 2>&1 || echo "No active iSCSI sessions")
+         sysinfo_iscsi+=$'\n\n'
+         sysinfo_iscsi+="=== iSCSI Nodes ==="$'\n'
+         sysinfo_iscsi+=$(iscsiadm -m node 2>&1 || echo "No iSCSI nodes configured")
+         sysinfo_iscsi+=$'\n'
+     else
+         sysinfo_iscsi="iSCSI tools not installed"
+     fi
+
+     if [[ -n "${iscsi_discovery_portal:-}" ]]; then
+         sysinfo_iscsi+=$'\n'"=== iSCSI SendTargets Discovery ==="$'\n'
+         sysinfo_iscsi+="Portal: $iscsi_discovery_portal"$'\n'
+         sysinfo_iscsi+="${iscsi_discovery_report:-}"$'\n'
+     fi
     
     # Capture initiator name if exists
     if [[ -r /etc/iscsi/initiatorname.iscsi ]]; then
