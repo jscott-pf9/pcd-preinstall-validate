@@ -149,6 +149,66 @@
      warn "Unknown CPU vendor_id (${cpu_vendor_id:-unknown}); cannot assess compatibility against supported CPU models list"
  fi
 
+ # Check (recommended): CPU governor should be set to performance
+ cpu_governor_ok=0
+ cpu_governor_count=0
+ for gov_file in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+     [[ -r "$gov_file" ]] || continue
+     cpu_governor_count=$((cpu_governor_count + 1))
+     governor=$(cat "$gov_file" 2>/dev/null)
+     if [[ "$governor" != "performance" ]]; then
+         cpu_governor_ok=1
+         break
+     fi
+ done
+
+ if [[ "$cpu_governor_count" -eq 0 ]]; then
+     warn "CPU frequency scaling not available or not readable"
+ elif [[ "$cpu_governor_ok" -eq 1 ]]; then
+     warn "CPU governor is not set to 'performance' (current: $governor, recommended for consistent performance)"
+ else
+     pass "CPU governor set to 'performance'"
+ fi
+
+ # Check (recommended): IOMMU/VT-d enabled for PCI passthrough
+ if [[ -d /sys/kernel/iommu_groups ]] && [[ -n "$(ls -A /sys/kernel/iommu_groups 2>/dev/null)" ]]; then
+     iommu_group_count=$(ls -1 /sys/kernel/iommu_groups 2>/dev/null | wc -l)
+     pass "IOMMU enabled ($iommu_group_count IOMMU groups detected)"
+ elif grep -qE 'intel_iommu=on|amd_iommu=on' /proc/cmdline 2>/dev/null; then
+     warn "IOMMU enabled in kernel parameters but no IOMMU groups detected (check BIOS settings)"
+ else
+     warn "IOMMU not detected (enable in BIOS and add intel_iommu=on or amd_iommu=on to kernel parameters for PCI passthrough)"
+ fi
+
+ # Check (recommended): Hugepages configuration
+ hugepages_total=$(awk '/^HugePages_Total:/ {print $2}' /proc/meminfo 2>/dev/null)
+ hugepages_size=$(awk '/^Hugepagesize:/ {print $2}' /proc/meminfo 2>/dev/null)
+ if [[ -n "$hugepages_total" ]] && [[ "$hugepages_total" -gt 0 ]]; then
+     hugepages_mb=$((hugepages_total * hugepages_size / 1024))
+     pass "Hugepages configured: $hugepages_total pages x ${hugepages_size}kB (~${hugepages_mb}MB total)"
+ else
+     warn "Hugepages not configured (recommended for VM performance)"
+ fi
+
+ # Check: Kernel version
+ kernel_version=$(uname -r)
+ if [[ -n "$kernel_version" ]]; then
+     pass "Kernel version: $kernel_version"
+ else
+     warn "Unable to determine kernel version"
+ fi
+
+ # Check (recommended): System load average
+ load_avg=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
+ if [[ -n "$load_avg" ]] && [[ -n "$vcpus" ]]; then
+     load_per_cpu=$(awk "BEGIN {printf \"%.2f\", $load_avg / $vcpus}")
+     if awk "BEGIN {exit !($load_per_cpu > 2.0)}"; then
+         warn "System load average is high: $load_avg (${load_per_cpu} per CPU)"
+     else
+         pass "System load average: $load_avg (${load_per_cpu} per CPU)"
+     fi
+ fi
+
  # Check: cloud-init must be disabled
  # If cloud-init is enabled it can overwrite network configuration and break static netplan.
  cloud_init_disabled=0
@@ -190,6 +250,107 @@
      pass "Time synchronization is active ($time_sync_service)"
  else
      fail "No active time synchronization service detected (systemd-timesyncd, ntp, ntpd, or chronyd required)"
+ fi
+
+ # Check (recommended): Network interfaces are up with link
+ active_interfaces=$(ip -o link show | awk -F': ' '$3 !~ /LOOPBACK/ && $3 ~ /UP/ {print $2}' | wc -l)
+ if [[ "$active_interfaces" -gt 0 ]]; then
+     pass "Active network interfaces: $active_interfaces"
+ else
+     warn "No active network interfaces detected (excluding loopback)"
+ fi
+
+ # Check: DNS resolution working
+ if command -v host >/dev/null 2>&1; then
+     if host google.com >/dev/null 2>&1; then
+         pass "DNS resolution is working"
+     else
+         fail "DNS resolution failed (unable to resolve google.com)"
+     fi
+ elif command -v nslookup >/dev/null 2>&1; then
+     if nslookup google.com >/dev/null 2>&1; then
+         pass "DNS resolution is working"
+     else
+         fail "DNS resolution failed (unable to resolve google.com)"
+     fi
+ else
+     warn "DNS resolution tools not available (host or nslookup not found)"
+ fi
+
+ # Check (recommended): Firewall status
+ if systemctl is-active --quiet ufw.service 2>/dev/null; then
+     warn "UFW firewall is active (may interfere with PCD networking)"
+ elif command -v iptables >/dev/null 2>&1; then
+     iptables_rules=$(iptables -L -n 2>/dev/null | grep -c '^Chain')
+     if [[ "$iptables_rules" -gt 3 ]]; then
+         warn "iptables rules detected ($iptables_rules chains, may interfere with PCD networking)"
+     else
+         pass "No active firewall rules detected"
+     fi
+ else
+     pass "No firewall detected"
+ fi
+
+ # Check: SSH service is running
+ if systemctl is-active --quiet ssh.service 2>/dev/null || systemctl is-active --quiet sshd.service 2>/dev/null; then
+     pass "SSH service is active"
+ else
+     fail "SSH service is not active (required for remote management)"
+ fi
+
+ # Check (recommended): SELinux/AppArmor status
+ if command -v getenforce >/dev/null 2>&1; then
+     selinux_status=$(getenforce 2>/dev/null)
+     if [[ "$selinux_status" == "Disabled" ]] || [[ "$selinux_status" == "Permissive" ]]; then
+         pass "SELinux is $selinux_status"
+     else
+         warn "SELinux is $selinux_status (may cause issues with virtualization)"
+     fi
+ elif systemctl is-active --quiet apparmor.service 2>/dev/null; then
+     warn "AppArmor is active (may cause issues with virtualization)"
+ else
+     pass "No SELinux or AppArmor restrictions detected"
+ fi
+
+ # Check: Root filesystem type
+ root_fstype=$(df -T / | awk 'NR==2 {print $2}')
+ if [[ "$root_fstype" == "ext4" ]] || [[ "$root_fstype" == "xfs" ]]; then
+     pass "Root filesystem type: $root_fstype"
+ else
+     warn "Root filesystem type is $root_fstype (ext4 or xfs recommended)"
+ fi
+
+ # Check (recommended): Disk I/O scheduler for root device
+ root_device=$(df / | awk 'NR==2 {print $1}' | sed 's/[0-9]*$//' | sed 's|/dev/||')
+ if [[ -n "$root_device" ]] && [[ -r "/sys/block/$root_device/queue/scheduler" ]]; then
+     scheduler=$(cat "/sys/block/$root_device/queue/scheduler" 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')
+     if [[ -n "$scheduler" ]]; then
+         pass "I/O scheduler for $root_device: $scheduler"
+     else
+         warn "Unable to determine I/O scheduler for $root_device"
+     fi
+ else
+     warn "Unable to check I/O scheduler (root device: $root_device)"
+ fi
+
+ # Check (recommended): /var disk space
+ var_size_gb=$(df -BG /var 2>/dev/null | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
+ if [[ -n "$var_size_gb" ]] && [[ "$var_size_gb" -ge 50 ]]; then
+     pass "/var free space: ${var_size_gb}GB (>= 50GB recommended)"
+ elif [[ -n "$var_size_gb" ]]; then
+     warn "/var free space: ${var_size_gb}GB (>= 50GB recommended)"
+ else
+     warn "Unable to determine /var free space"
+ fi
+
+ # Check (recommended): /tmp disk space
+ tmp_size_gb=$(df -BG /tmp 2>/dev/null | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
+ if [[ -n "$tmp_size_gb" ]] && [[ "$tmp_size_gb" -ge 10 ]]; then
+     pass "/tmp free space: ${tmp_size_gb}GB (>= 10GB recommended)"
+ elif [[ -n "$tmp_size_gb" ]]; then
+     warn "/tmp free space: ${tmp_size_gb}GB (>= 10GB recommended)"
+ else
+     warn "Unable to determine /tmp free space"
  fi
 
  # Check: netplan must be statically configured (no DHCP)
@@ -252,6 +413,40 @@
      elif [[ "$netplan_unknown_bond_mode" -eq 1 ]]; then
          warn "Netplan bonding detected but mode not found/recognized (ensure active-backup or 802.3ad/lacp)"
      fi
+ fi
+
+ # Check (recommended): Nested virtualization support
+ if [[ -r /sys/module/kvm_intel/parameters/nested ]]; then
+     nested_intel=$(cat /sys/module/kvm_intel/parameters/nested 2>/dev/null)
+     if [[ "$nested_intel" == "Y" ]] || [[ "$nested_intel" == "1" ]]; then
+         pass "Nested virtualization enabled (Intel)"
+     else
+         warn "Nested virtualization disabled (Intel) - enable if running on VMs"
+     fi
+ elif [[ -r /sys/module/kvm_amd/parameters/nested ]]; then
+     nested_amd=$(cat /sys/module/kvm_amd/parameters/nested 2>/dev/null)
+     if [[ "$nested_amd" == "Y" ]] || [[ "$nested_amd" == "1" ]]; then
+         pass "Nested virtualization enabled (AMD)"
+     else
+         warn "Nested virtualization disabled (AMD) - enable if running on VMs"
+     fi
+ else
+     pass "Nested virtualization check skipped (not running on VM or KVM modules not loaded)"
+ fi
+
+ # Check (recommended): libvirt/qemu should not be pre-installed
+ libvirt_installed=0
+ if dpkg -s libvirt-daemon-system >/dev/null 2>&1 || dpkg -s libvirt-bin >/dev/null 2>&1; then
+     libvirt_installed=1
+ fi
+ if dpkg -s qemu-kvm >/dev/null 2>&1 || dpkg -s qemu-system-x86 >/dev/null 2>&1; then
+     libvirt_installed=1
+ fi
+
+ if [[ "$libvirt_installed" -eq 1 ]]; then
+     warn "libvirt or qemu packages detected (may conflict with PCD installation)"
+ else
+     pass "No conflicting libvirt/qemu packages detected"
  fi
 
  san_present=0

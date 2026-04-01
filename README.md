@@ -6,23 +6,54 @@ The script performs a set of mandatory and recommended checks on a host before i
 
 ## What it checks
 
+### System Requirements
 - Host OS is supported (Ubuntu 22.04 LTS or Ubuntu 24.04 LTS)
 - Architecture is `x86_64`
 - CPU cores (>= 8)
 - RAM (>= 16GB)
 - Hardware virtualization flags present (`vmx` / `svm`)
 - Basic CPU sanity checks (vendor/model info and a minimal instruction set baseline)
+- Kernel version detection
+
+### Performance & Hardware
+- CPU governor set to 'performance' (recommended)
+- IOMMU/VT-d enabled for PCI passthrough (recommended)
+- Hugepages configuration (recommended)
+- System load average monitoring (recommended)
+
+### Network Configuration
 - `cloud-init` is disabled (when installed)
 - Time synchronization service is active (systemd-timesyncd, ntp, ntpd, or chronyd)
+- Network interfaces are up with link (recommended)
+- DNS resolution is working
 - Netplan is not using DHCP and has static addressing configured
 - Netplan bond mode sanity (warn/fail if unsupported)
+
+### Storage & Filesystem
+- Root filesystem type (ext4 or xfs recommended)
+- Root filesystem free space (>= 250GB recommended)
+- `/var` free space (>= 50GB recommended)
+- `/tmp` free space (>= 10GB recommended)
+- Disk I/O scheduler detection (recommended)
 - Fails if SAN-backed storage appears to be presented already (iSCSI sessions, FC-attached LUNs, or multipath maps)
 - Warns if iSCSI initiator name appears to be a default/template value (risk of duplicates across nodes)
 - Swap presence (recommended)
-- LVM filter configuration when `lvm2` is installed (recommended)
+- LVM filter configuration when `lvm2` is installed (mandatory if lvm2 installed)
+
+### Security & Access
+- SSH service is running
+- Firewall status (UFW/iptables detection, recommended)
+- SELinux/AppArmor status (recommended)
+
+### Virtualization
+- Nested virtualization support detection (recommended)
+- No conflicting libvirt/qemu packages pre-installed (recommended)
+
+### Connectivity
 - Outbound connectivity to required endpoints (via `curl --head`)
-- Root filesystem free space check (>= 250GB)
-- Optional: `multipath-tools` presence (flag-controlled)
+
+### Optional Checks
+- `multipath-tools` presence (flag-controlled with --check-multipath)
 
 ## Supported platforms
 
