@@ -167,6 +167,15 @@
      fail "RAM: unable to determine (>= 16GB required)"
  fi
 
+ # Check (recommended): Swap configured
+ swap_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
+ if [[ -n "$swap_kb" ]] && [[ "$swap_kb" -gt 0 ]]; then
+     swap_gb=$(( (swap_kb + 1024*1024 - 1) / (1024*1024) ))
+     pass "Swap configured: ~${swap_gb}GB"
+ else
+     warn "Swap not configured (recommended)"
+ fi
+
  # Check: Hardware virtualization extension present (vmx for Intel, svm for AMD)
  if grep -qE '(^flags\s*:.*\s(vmx|svm)\s)' /proc/cpuinfo 2>/dev/null; then
      pass "Hardware virtualization extensions present (vmx/svm)"
@@ -626,15 +635,6 @@
          iscsi_discovery_report="iscsiadm not installed"
          warn "iSCSI discovery skipped: iscsiadm not installed (portal: $iscsi_discovery_portal)"
      fi
- fi
-
- # Check (recommended): Swap configured
- swap_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
- if [[ -n "$swap_kb" ]] && [[ "$swap_kb" -gt 0 ]]; then
-     swap_gb=$(( (swap_kb + 1024*1024 - 1) / (1024*1024) ))
-     pass "Swap configured: ~${swap_gb}GB"
- else
-     warn "Swap not configured (recommended)"
  fi
 
  # Check (recommended): If lvm2 is installed, LVM device filters should be configured
