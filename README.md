@@ -59,34 +59,89 @@ The script performs a set of mandatory and recommended checks on a host before i
 
 The script can generate validation reports in two formats:
 
-### Text Report Format
+### Markdown Report Format
 
-```
-==========================================
-PCD Pre-Installation Validation Report
-==========================================
+The text report is generated in Markdown format for better readability:
 
-Generated: 2026-04-01T15:10:23Z
-Hostname: hypervisor-01
-OS: Ubuntu 22.04.3 LTS
+```markdown
+# PCD Pre-Installation Validation Report
 
-Summary:
---------
-  Passed: 45
-  Warnings: 8
-  Failed: 2
+**Generated:** 2026-04-01T15:10:23Z  
+**Hostname:** hypervisor-01  
+**OS:** Ubuntu 22.04.3 LTS
 
-Detailed Results:
------------------
-[PASS] OS: Ubuntu 22.04.3 LTS
-[PASS] Architecture is x86_64
-[PASS] CPU cores: 16 (>= 8 required)
-[WARN] CPU governor is not set to 'performance'
-[FAIL] DNS resolution failed
+---
+
+## Summary
+
+| Status | Count |
+|--------|-------|
+| ✅ Passed | 45 |
+| ⚠️ Warnings | 8 |
+| ❌ Failed | 2 |
+
+---
+
+## Validation Results
+
+- ✅ **PASS:** OS: Ubuntu 22.04.3 LTS
+- ✅ **PASS:** Architecture is x86_64
+- ✅ **PASS:** CPU cores: 16 (>= 8 required)
+- ⚠️ **WARN:** CPU governor is not set to 'performance'
+- ❌ **FAIL:** DNS resolution failed
 ...
-==========================================
-End of Report
-==========================================
+
+---
+
+## System Information
+
+### Network Configuration
+
+#### IP Addresses
+```
+(output of 'ip a')
+```
+
+#### IP Routes
+```
+(output of 'ip route')
+```
+
+#### Network Connectivity Test
+```
+(output of 'ping -c 4 google.com')
+```
+
+#### Netplan Configuration
+```yaml
+(contents of /etc/netplan/*.yaml files)
+```
+
+### Storage Information
+
+#### Disk Usage
+```
+(output of 'df -kh')
+```
+
+### iSCSI Configuration
+```
+(iSCSI sessions, nodes, and initiator name if available)
+```
+
+### Multipath Configuration
+```
+(multipath devices and configuration if available)
+```
+
+### LVM Configuration
+```
+(LVM filter settings, physical volumes, volume groups, and logical volumes if LVM is installed)
+```
+
+---
+
+*End of Report*
 ```
 
 ### JSON Report Format
@@ -110,7 +165,27 @@ End of Report
     {"status": "PASS", "message": "Architecture is x86_64"},
     {"status": "WARN", "message": "CPU governor is not set to 'performance'"},
     {"status": "FAIL", "message": "DNS resolution failed"}
-  ]
+  ],
+  "system_information": {
+    "network": {
+      "ip_addresses": "...",
+      "ip_routes": "...",
+      "ping_test": "...",
+      "netplan_config": "..."
+    },
+    "storage": {
+      "disk_usage": "..."
+    },
+    "iscsi": {
+      "info": "..."
+    },
+    "multipath": {
+      "info": "..."
+    },
+    "lvm": {
+      "info": "..."
+    }
+  }
 }
 ```
 
@@ -167,24 +242,24 @@ sudo ./saasvalidate.sh
 ### With Report Generation
 
 ```bash
-# Generate text report (default filename: pcd-validation-report.txt)
+# Generate Markdown report (default filename: pcd-validation-report.md)
 sudo ./saasvalidate.sh --report
 
 # Generate report with custom filename
-sudo ./saasvalidate.sh --report my-server-validation.txt
+sudo ./saasvalidate.sh --report my-server-validation
 
 # Generate JSON report
 sudo ./saasvalidate.sh --report --report-format json
 
-# Generate both text and JSON reports
+# Generate both Markdown and JSON reports
 sudo ./saasvalidate.sh --report --report-format both
 ```
 
 ### Command-Line Options
 
 - `-m, --check-multipath` - Enable optional check for multipath-tools package presence
-- `-r, --report [FILE]` - Generate validation report (default: pcd-validation-report.txt)
-- `--report-format FORMAT` - Report format: text, json, or both (default: text)
+- `-r, --report [FILE]` - Generate validation report (default: pcd-validation-report.md)
+- `--report-format FORMAT` - Report format: text (Markdown), json, or both (default: text)
 - `-h, --help` - Show help message
 
 ### Examples

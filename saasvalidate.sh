@@ -70,16 +70,16 @@
     echo ""
     echo "Options:"
     echo "  -m, --check-multipath          Enable multipath-tools check"
-    echo "  -r, --report [FILE]            Generate report (default: pcd-validation-report.txt)"
+    echo "  -r, --report [FILE]            Generate report (default: pcd-validation-report.md)"
     echo "  --report-format FORMAT         Report format: text, json, or both (default: text)"
     echo "  -h, --help                     Show this help message"
     echo ""
     echo "Examples:"
     echo "  $0                                    # Run validation only"
-    echo "  $0 --report                           # Run and save report to pcd-validation-report.txt"
-    echo "  $0 --report myreport.txt              # Run and save report to myreport.txt"
+    echo "  $0 --report                           # Run and save Markdown report to pcd-validation-report.md"
+    echo "  $0 --report myreport                  # Run and save Markdown report to myreport.md"
     echo "  $0 --report --report-format json      # Generate JSON report"
-    echo "  $0 --report --report-format both      # Generate both text and JSON reports"
+    echo "  $0 --report --report-format both      # Generate both Markdown and JSON reports"
  }
 
  # Parse CLI arguments
@@ -652,25 +652,125 @@ else
     echo "Skipping multipath-tools check (enable with --check-multipath or -m)"
 fi
 
+# Collect system information for report if requested
+if [[ "$generate_report" -eq 1 ]]; then
+    # Capture network information
+    sysinfo_ip_addr=$(ip a 2>/dev/null)
+    sysinfo_ip_route=$(ip route 2>/dev/null)
+    sysinfo_ping=$(ping -c 4 google.com 2>&1 || echo "Ping failed")
+    
+    # Capture storage information
+    sysinfo_df=$(df -kh 2>/dev/null)
+    
+    # Capture netplan configuration
+    sysinfo_netplan=""
+    for netplan_file in /etc/netplan/*.yaml /etc/netplan/*.yml; do
+        if [[ -r "$netplan_file" ]]; then
+            sysinfo_netplan+="--- $netplan_file ---"$'\n'
+            sysinfo_netplan+=$(cat "$netplan_file" 2>/dev/null)
+            sysinfo_netplan+=$'\n\n'
+        fi
+    done
+    if [[ -z "$sysinfo_netplan" ]]; then
+        sysinfo_netplan="No netplan configuration files found"
+    fi
+    
+    # Capture iSCSI information if available
+    sysinfo_iscsi=""
+    if command -v iscsiadm >/dev/null 2>&1; then
+        sysinfo_iscsi+="=== iSCSI Sessions ==="$'\n'
+        sysinfo_iscsi+=$(iscsiadm -m session 2>&1 || echo "No active iSCSI sessions")
+        sysinfo_iscsi+=$'\n\n'
+        sysinfo_iscsi+="=== iSCSI Nodes ==="$'\n'
+        sysinfo_iscsi+=$(iscsiadm -m node 2>&1 || echo "No iSCSI nodes configured")
+        sysinfo_iscsi+=$'\n'
+    else
+        sysinfo_iscsi="iSCSI tools not installed"
+    fi
+    
+    # Capture initiator name if exists
+    if [[ -r /etc/iscsi/initiatorname.iscsi ]]; then
+        sysinfo_iscsi+=$'\n'"=== iSCSI Initiator Name ==="$'\n'
+        sysinfo_iscsi+=$(cat /etc/iscsi/initiatorname.iscsi 2>/dev/null)
+        sysinfo_iscsi+=$'\n'
+    fi
+    
+    # Capture multipath information if available
+    sysinfo_multipath=""
+    if command -v multipath >/dev/null 2>&1; then
+        sysinfo_multipath+="=== Multipath Devices ==="$'\n'
+        sysinfo_multipath+=$(multipath -ll 2>&1 || echo "No multipath devices")
+        sysinfo_multipath+=$'\n\n'
+        sysinfo_multipath+="=== Multipath Configuration ==="$'\n'
+        if [[ -r /etc/multipath.conf ]]; then
+            sysinfo_multipath+=$(cat /etc/multipath.conf 2>/dev/null)
+        else
+            sysinfo_multipath+="No /etc/multipath.conf found"
+        fi
+        sysinfo_multipath+=$'\n'
+    else
+        sysinfo_multipath="Multipath tools not installed"
+    fi
+    
+    # Capture LVM configuration if available
+    sysinfo_lvm=""
+    if dpkg -s lvm2 >/dev/null 2>&1; then
+        sysinfo_lvm+="=== LVM Configuration (/etc/lvm/lvm.conf) ==="$'\n'
+        if [[ -r /etc/lvm/lvm.conf ]]; then
+            # Extract filter and global_filter lines
+            filter_line=$(grep -E '^[[:space:]]*filter[[:space:]]*=' /etc/lvm/lvm.conf 2>/dev/null | head -n 1)
+            global_filter_line=$(grep -E '^[[:space:]]*global_filter[[:space:]]*=' /etc/lvm/lvm.conf 2>/dev/null | head -n 1)
+            
+            if [[ -n "$filter_line" ]]; then
+                sysinfo_lvm+="filter: $filter_line"$'\n'
+            else
+                sysinfo_lvm+="filter: NOT SET"$'\n'
+            fi
+            
+            if [[ -n "$global_filter_line" ]]; then
+                sysinfo_lvm+="global_filter: $global_filter_line"$'\n'
+            else
+                sysinfo_lvm+="global_filter: NOT SET"$'\n'
+            fi
+        else
+            sysinfo_lvm+="/etc/lvm/lvm.conf not readable"$'\n'
+        fi
+        sysinfo_lvm+=$'\n'
+        
+        # Capture LVM volume information
+        sysinfo_lvm+="=== Physical Volumes ==="$'\n'
+        sysinfo_lvm+=$(pvs 2>&1 || echo "No physical volumes or pvs command failed")
+        sysinfo_lvm+=$'\n\n'
+        sysinfo_lvm+="=== Volume Groups ==="$'\n'
+        sysinfo_lvm+=$(vgs 2>&1 || echo "No volume groups or vgs command failed")
+        sysinfo_lvm+=$'\n\n'
+        sysinfo_lvm+="=== Logical Volumes ==="$'\n'
+        sysinfo_lvm+=$(lvs 2>&1 || echo "No logical volumes or lvs command failed")
+        sysinfo_lvm+=$'\n'
+    else
+        sysinfo_lvm="LVM2 not installed"
+    fi
+fi
+
 # Generate report if requested
 if [[ "$generate_report" -eq 1 ]]; then
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     hostname=$(hostname)
     
-    # Generate text report
+    # Generate Markdown report
     if [[ "$report_format" == "text" ]] || [[ "$report_format" == "both" ]]; then
-        text_file="${report_file}.txt"
+        text_file="${report_file}.md"
         {
-            echo "=========================================="
-            echo "PCD Pre-Installation Validation Report"
-            echo "=========================================="
+            echo "# PCD Pre-Installation Validation Report"
             echo ""
-            echo "Generated: $timestamp"
-            echo "Hostname: $hostname"
-            echo "OS: ${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}"
+            echo "**Generated:** $timestamp  "
+            echo "**Hostname:** $hostname  "
+            echo "**OS:** ${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}"
             echo ""
-            echo "Summary:"
-            echo "--------"
+            echo "---"
+            echo ""
+            echo "## Summary"
+            echo ""
             
             pass_count=0
             warn_count=0
@@ -685,31 +785,98 @@ if [[ "$generate_report" -eq 1 ]]; then
                 esac
             done
             
-            echo "  Passed: $pass_count"
-            echo "  Warnings: $warn_count"
-            echo "  Failed: $fail_count_report"
+            echo "| Status | Count |"
+            echo "|--------|-------|"
+            echo "| ✅ Passed | $pass_count |"
+            echo "| ⚠️ Warnings | $warn_count |"
+            echo "| ❌ Failed | $fail_count_report |"
             echo ""
-            echo "Detailed Results:"
-            echo "-----------------"
+            echo "---"
+            echo ""
+            echo "## Validation Results"
+            echo ""
             
             for entry in "${report_data[@]}"; do
                 status="${entry%%|*}"
                 message="${entry#*|}"
                 case "$status" in
-                    PASS) echo "[PASS] $message" ;;
-                    WARN) echo "[WARN] $message" ;;
-                    FAIL) echo "[FAIL] $message" ;;
+                    PASS) echo "- ✅ **PASS:** $message" ;;
+                    WARN) echo "- ⚠️ **WARN:** $message" ;;
+                    FAIL) echo "- ❌ **FAIL:** $message" ;;
                 esac
             done
             
             echo ""
-            echo "=========================================="
-            echo "End of Report"
-            echo "=========================================="
+            echo "---"
+            echo ""
+            echo "## System Information"
+            echo ""
+            
+            echo "### Network Configuration"
+            echo ""
+            echo "#### IP Addresses"
+            echo '```'
+            echo "$sysinfo_ip_addr"
+            echo '```'
+            echo ""
+            echo "#### IP Routes"
+            echo '```'
+            echo "$sysinfo_ip_route"
+            echo '```'
+            echo ""
+            echo "#### Network Connectivity Test"
+            echo '```'
+            echo "$sysinfo_ping"
+            echo '```'
+            echo ""
+            echo "#### Netplan Configuration"
+            echo '```yaml'
+            echo "$sysinfo_netplan"
+            echo '```'
+            echo ""
+            
+            echo "### Storage Information"
+            echo ""
+            echo "#### Disk Usage"
+            echo '```'
+            echo "$sysinfo_df"
+            echo '```'
+            echo ""
+            
+            if [[ "$sysinfo_iscsi" != "iSCSI tools not installed" ]] || [[ -r /etc/iscsi/initiatorname.iscsi ]]; then
+                echo "### iSCSI Configuration"
+                echo ""
+                echo '```'
+                echo "$sysinfo_iscsi"
+                echo '```'
+                echo ""
+            fi
+            
+            if [[ "$sysinfo_multipath" != "Multipath tools not installed" ]]; then
+                echo "### Multipath Configuration"
+                echo ""
+                echo '```'
+                echo "$sysinfo_multipath"
+                echo '```'
+                echo ""
+            fi
+            
+            if [[ "$sysinfo_lvm" != "LVM2 not installed" ]]; then
+                echo "### LVM Configuration"
+                echo ""
+                echo '```'
+                echo "$sysinfo_lvm"
+                echo '```'
+                echo ""
+            fi
+            
+            echo "---"
+            echo ""
+            echo "*End of Report*"
         } > "$text_file"
         
         echo ""
-        echo "Text report saved to: $text_file"
+        echo "Markdown report saved to: $text_file"
     fi
     
     # Generate JSON report
@@ -764,7 +931,43 @@ if [[ "$generate_report" -eq 1 ]]; then
             done
             
             echo ""
-            echo "  ]"
+            echo "  ],"
+            echo "  \"system_information\": {"
+            echo "    \"network\": {"
+            echo -n "      \"ip_addresses\": "
+            printf '%s' "$sysinfo_ip_addr" | jq -Rs .
+            echo ","
+            echo -n "      \"ip_routes\": "
+            printf '%s' "$sysinfo_ip_route" | jq -Rs .
+            echo ","
+            echo -n "      \"ping_test\": "
+            printf '%s' "$sysinfo_ping" | jq -Rs .
+            echo ","
+            echo -n "      \"netplan_config\": "
+            printf '%s' "$sysinfo_netplan" | jq -Rs .
+            echo ""
+            echo "    },"
+            echo "    \"storage\": {"
+            echo -n "      \"disk_usage\": "
+            printf '%s' "$sysinfo_df" | jq -Rs .
+            echo ""
+            echo "    },"
+            echo "    \"iscsi\": {"
+            echo -n "      \"info\": "
+            printf '%s' "$sysinfo_iscsi" | jq -Rs .
+            echo ""
+            echo "    },"
+            echo "    \"multipath\": {"
+            echo -n "      \"info\": "
+            printf '%s' "$sysinfo_multipath" | jq -Rs .
+            echo ""
+            echo "    },"
+            echo "    \"lvm\": {"
+            echo -n "      \"info\": "
+            printf '%s' "$sysinfo_lvm" | jq -Rs .
+            echo ""
+            echo "    }"
+            echo "  }"
             echo "}"
         } > "$json_file"
         
