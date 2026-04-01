@@ -462,6 +462,7 @@
  # This validates that dhcp4/dhcp6 are not enabled in /etc/netplan/*.yaml.
  netplan_files=(/etc/netplan/*.yaml /etc/netplan/*.yml)
  netplan_found=0
+ netplan_file_count=0
  netplan_dhcp_enabled=0
  netplan_has_addresses=0
  netplan_has_bonds=0
@@ -472,6 +473,7 @@
  for f in "${netplan_files[@]}"; do
      [[ -e "$f" ]] || continue
      netplan_found=1
+     netplan_file_count=$((netplan_file_count + 1))
 
      if grep -qiE '^[[:space:]]*dhcp4:[[:space:]]*(true|yes)[[:space:]]*$' "$f" || grep -qiE '^[[:space:]]*dhcp6:[[:space:]]*(true|yes)[[:space:]]*$' "$f"; then
          netplan_dhcp_enabled=1
@@ -496,6 +498,9 @@
  if [[ "$netplan_found" -eq 0 ]]; then
      fail "No netplan config found under /etc/netplan/*.yaml"
  else
+     if [[ "$netplan_file_count" -gt 1 ]]; then
+         warn "Multiple netplan files detected under /etc/netplan ($netplan_file_count files); ensure configuration is not conflicting"
+     fi
      if [[ "$netplan_dhcp_enabled" -eq 1 ]]; then
          fail "Netplan is configured with DHCP (static configuration required)"
      else
