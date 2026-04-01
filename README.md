@@ -13,9 +13,11 @@ The script performs a set of mandatory and recommended checks on a host before i
 - Hardware virtualization flags present (`vmx` / `svm`)
 - Basic CPU sanity checks (vendor/model info and a minimal instruction set baseline)
 - `cloud-init` is disabled (when installed)
+- Time synchronization service is active (systemd-timesyncd, ntp, ntpd, or chronyd)
 - Netplan is not using DHCP and has static addressing configured
 - Netplan bond mode sanity (warn/fail if unsupported)
 - Fails if SAN-backed storage appears to be presented already (iSCSI sessions, FC-attached LUNs, or multipath maps)
+- Warns if iSCSI initiator name appears to be a default/template value (risk of duplicates across nodes)
 - Swap presence (recommended)
 - LVM filter configuration when `lvm2` is installed (recommended)
 - Outbound connectivity to required endpoints (via `curl --head`)

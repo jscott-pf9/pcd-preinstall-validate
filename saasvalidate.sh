@@ -168,6 +168,30 @@
      warn "cloud-init package not found; skipping cloud-init disable check"
  fi
 
+ # Check: Time synchronization (NTP or systemd-timesyncd) must be configured and running
+ time_sync_ok=0
+ time_sync_service=""
+
+ if systemctl is-active --quiet systemd-timesyncd.service 2>/dev/null; then
+     time_sync_ok=1
+     time_sync_service="systemd-timesyncd"
+ elif systemctl is-active --quiet ntp.service 2>/dev/null; then
+     time_sync_ok=1
+     time_sync_service="ntp"
+ elif systemctl is-active --quiet ntpd.service 2>/dev/null; then
+     time_sync_ok=1
+     time_sync_service="ntpd"
+ elif systemctl is-active --quiet chronyd.service 2>/dev/null; then
+     time_sync_ok=1
+     time_sync_service="chronyd"
+ fi
+
+ if [[ "$time_sync_ok" -eq 1 ]]; then
+     pass "Time synchronization is active ($time_sync_service)"
+ else
+     fail "No active time synchronization service detected (systemd-timesyncd, ntp, ntpd, or chronyd required)"
+ fi
+
  # Check: netplan must be statically configured (no DHCP)
  # This validates that dhcp4/dhcp6 are not enabled in /etc/netplan/*.yaml.
  netplan_files=(/etc/netplan/*.yaml /etc/netplan/*.yml)
@@ -272,6 +296,27 @@
      fail "SAN-backed storage appears to be presented to this host (${san_reasons[*]})"
  else
      pass "No SAN-backed storage detected (iSCSI/FC/multipath)"
+ fi
+
+ # Check (recommended): iSCSI initiator name should not be default/template
+ if [[ -r /etc/iscsi/initiatorname.iscsi ]]; then
+     initiator_name=$(grep -E '^InitiatorName=' /etc/iscsi/initiatorname.iscsi 2>/dev/null | cut -d= -f2)
+     if [[ -n "$initiator_name" ]]; then
+         is_default=0
+         if echo "$initiator_name" | grep -qE '^iqn\.1993-08\.org\.debian:01:'; then
+             is_default=1
+         elif echo "$initiator_name" | grep -qE '^iqn\.2004-10\.com\.ubuntu:01:'; then
+             is_default=1
+         elif echo "$initiator_name" | grep -qE ':(01|02):'; then
+             is_default=1
+         fi
+         
+         if [[ "$is_default" -eq 1 ]]; then
+             warn "iSCSI initiator name appears to be default/template: $initiator_name (verify uniqueness across all nodes)"
+         else
+             pass "iSCSI initiator name: $initiator_name"
+         fi
+     fi
  fi
 
  # Check (recommended): Swap configured
