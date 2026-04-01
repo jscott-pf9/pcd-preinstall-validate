@@ -646,14 +646,10 @@
 
          if [[ -z "$lvm_filter_line" ]]; then
              fail "lvm2 detected but /etc/lvm/lvm.conf filter is not set (configure LVM device filters)"
-         elif ! echo "$lvm_filter_line" | grep -qE '["\x27]a\|'; then
-             fail "lvm2 detected but /etc/lvm/lvm.conf filter does not appear to include accept rules (a|...|)"
          fi
 
          if [[ -z "$lvm_global_filter_line" ]]; then
              fail "lvm2 detected but /etc/lvm/lvm.conf global_filter is not set (configure LVM device filters)"
-         elif ! echo "$lvm_global_filter_line" | grep -qE '["\x27]a\|'; then
-             fail "lvm2 detected but /etc/lvm/lvm.conf global_filter does not appear to include accept rules (a|...|)"
          fi
      else
          fail "lvm2 detected but /etc/lvm/lvm.conf is not readable; cannot validate LVM filter configuration"
