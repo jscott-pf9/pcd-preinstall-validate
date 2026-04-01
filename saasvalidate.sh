@@ -18,19 +18,34 @@
 
  check_multipath=0
  fail_count=0
+ generate_report=0
+ report_format="text"
+ report_file=""
+
+ # Report data storage
+ declare -a report_data
 
  # Output helpers
  pass() {
     echo -e "\033[0;32m✓\033[0m $1"
+    if [[ "$generate_report" -eq 1 ]]; then
+        report_data+=("PASS|$1")
+    fi
  }
 
  fail() {
     echo -e "\033[0;31m✗\033[0m $1"
     fail_count=$((fail_count + 1))
+    if [[ "$generate_report" -eq 1 ]]; then
+        report_data+=("FAIL|$1")
+    fi
  }
 
  warn() {
     echo -e "\033[0;33m!\033[0m $1"
+    if [[ "$generate_report" -eq 1 ]]; then
+        report_data+=("WARN|$1")
+    fi
  }
 
  # Check: OS must be Ubuntu 22.04 or 24.04
@@ -51,7 +66,20 @@
 
  # CLI usage
  usage() {
-     echo "Usage: $0 [--check-multipath|-m]"
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -m, --check-multipath          Enable multipath-tools check"
+    echo "  -r, --report [FILE]            Generate report (default: pcd-validation-report.txt)"
+    echo "  --report-format FORMAT         Report format: text, json, or both (default: text)"
+    echo "  -h, --help                     Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  $0                                    # Run validation only"
+    echo "  $0 --report                           # Run and save report to pcd-validation-report.txt"
+    echo "  $0 --report myreport.txt              # Run and save report to myreport.txt"
+    echo "  $0 --report --report-format json      # Generate JSON report"
+    echo "  $0 --report --report-format both      # Generate both text and JSON reports"
  }
 
  # Parse CLI arguments
@@ -60,6 +88,24 @@
          -m|--check-multipath)
              check_multipath=1
              shift
+             ;;
+         -r|--report)
+             generate_report=1
+             shift
+             if [[ $# -gt 0 ]] && [[ ! "$1" =~ ^- ]]; then
+                 report_file="$1"
+                 shift
+             fi
+             ;;
+         --report-format)
+             shift
+             if [[ $# -gt 0 ]]; then
+                 report_format="$1"
+                 shift
+             else
+                 echo "Error: --report-format requires an argument (text, json, or both)"
+                 exit 2
+             fi
              ;;
          -h|--help)
              usage
@@ -72,6 +118,11 @@
              ;;
      esac
  done
+
+ # Set default report filename if not specified
+ if [[ "$generate_report" -eq 1 ]] && [[ -z "$report_file" ]]; then
+     report_file="pcd-validation-report"
+ fi
 
  # Check: Platform9 PCD supports x86_64 hosts
  arch=$(uname -m)
@@ -599,6 +650,126 @@ if [[ "$check_multipath" -eq 1 ]]; then
     fi
 else
     echo "Skipping multipath-tools check (enable with --check-multipath or -m)"
+fi
+
+# Generate report if requested
+if [[ "$generate_report" -eq 1 ]]; then
+    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    hostname=$(hostname)
+    
+    # Generate text report
+    if [[ "$report_format" == "text" ]] || [[ "$report_format" == "both" ]]; then
+        text_file="${report_file}.txt"
+        {
+            echo "=========================================="
+            echo "PCD Pre-Installation Validation Report"
+            echo "=========================================="
+            echo ""
+            echo "Generated: $timestamp"
+            echo "Hostname: $hostname"
+            echo "OS: ${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}"
+            echo ""
+            echo "Summary:"
+            echo "--------"
+            
+            pass_count=0
+            warn_count=0
+            fail_count_report=0
+            
+            for entry in "${report_data[@]}"; do
+                status="${entry%%|*}"
+                case "$status" in
+                    PASS) ((pass_count++)) ;;
+                    WARN) ((warn_count++)) ;;
+                    FAIL) ((fail_count_report++)) ;;
+                esac
+            done
+            
+            echo "  Passed: $pass_count"
+            echo "  Warnings: $warn_count"
+            echo "  Failed: $fail_count_report"
+            echo ""
+            echo "Detailed Results:"
+            echo "-----------------"
+            
+            for entry in "${report_data[@]}"; do
+                status="${entry%%|*}"
+                message="${entry#*|}"
+                case "$status" in
+                    PASS) echo "[PASS] $message" ;;
+                    WARN) echo "[WARN] $message" ;;
+                    FAIL) echo "[FAIL] $message" ;;
+                esac
+            done
+            
+            echo ""
+            echo "=========================================="
+            echo "End of Report"
+            echo "=========================================="
+        } > "$text_file"
+        
+        echo ""
+        echo "Text report saved to: $text_file"
+    fi
+    
+    # Generate JSON report
+    if [[ "$report_format" == "json" ]] || [[ "$report_format" == "both" ]]; then
+        json_file="${report_file}.json"
+        {
+            echo "{"
+            echo "  \"report_metadata\": {"
+            echo "    \"generated_at\": \"$timestamp\","
+            echo "    \"hostname\": \"$hostname\","
+            echo "    \"os\": \"${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}\","
+            echo "    \"script_version\": \"1.0\""
+            echo "  },"
+            echo "  \"summary\": {"
+            
+            pass_count=0
+            warn_count=0
+            fail_count_report=0
+            
+            for entry in "${report_data[@]}"; do
+                status="${entry%%|*}"
+                case "$status" in
+                    PASS) ((pass_count++)) ;;
+                    WARN) ((warn_count++)) ;;
+                    FAIL) ((fail_count_report++)) ;;
+                esac
+            done
+            
+            echo "    \"total_checks\": ${#report_data[@]},"
+            echo "    \"passed\": $pass_count,"
+            echo "    \"warnings\": $warn_count,"
+            echo "    \"failed\": $fail_count_report"
+            echo "  },"
+            echo "  \"checks\": ["
+            
+            first=1
+            for entry in "${report_data[@]}"; do
+                status="${entry%%|*}"
+                message="${entry#*|}"
+                # Escape quotes in message
+                message_escaped="${message//\"/\\\"}"
+                
+                if [[ $first -eq 0 ]]; then
+                    echo ","
+                fi
+                first=0
+                
+                echo -n "    {"
+                echo -n "\"status\": \"$status\", "
+                echo -n "\"message\": \"$message_escaped\""
+                echo -n "}"
+            done
+            
+            echo ""
+            echo "  ]"
+            echo "}"
+        } > "$json_file"
+        
+        echo "JSON report saved to: $json_file"
+    fi
 fi
 
 # Exit non-zero if any mandatory checks failed

@@ -55,6 +55,71 @@ The script performs a set of mandatory and recommended checks on a host before i
 ### Optional Checks
 - `multipath-tools` presence (flag-controlled with --check-multipath)
 
+## Report Output
+
+The script can generate validation reports in two formats:
+
+### Text Report Format
+
+```
+==========================================
+PCD Pre-Installation Validation Report
+==========================================
+
+Generated: 2026-04-01T15:10:23Z
+Hostname: hypervisor-01
+OS: Ubuntu 22.04.3 LTS
+
+Summary:
+--------
+  Passed: 45
+  Warnings: 8
+  Failed: 2
+
+Detailed Results:
+-----------------
+[PASS] OS: Ubuntu 22.04.3 LTS
+[PASS] Architecture is x86_64
+[PASS] CPU cores: 16 (>= 8 required)
+[WARN] CPU governor is not set to 'performance'
+[FAIL] DNS resolution failed
+...
+==========================================
+End of Report
+==========================================
+```
+
+### JSON Report Format
+
+```json
+{
+  "report_metadata": {
+    "generated_at": "2026-04-01T15:10:23Z",
+    "hostname": "hypervisor-01",
+    "os": "Ubuntu 22.04.3 LTS",
+    "script_version": "1.0"
+  },
+  "summary": {
+    "total_checks": 55,
+    "passed": 45,
+    "warnings": 8,
+    "failed": 2
+  },
+  "checks": [
+    {"status": "PASS", "message": "OS: Ubuntu 22.04.3 LTS"},
+    {"status": "PASS", "message": "Architecture is x86_64"},
+    {"status": "WARN", "message": "CPU governor is not set to 'performance'"},
+    {"status": "FAIL", "message": "DNS resolution failed"}
+  ]
+}
+```
+
+The JSON format is ideal for:
+- Automated processing and analysis
+- Integration with monitoring systems
+- Batch validation across multiple servers
+- Generating compliance reports
+
 ## Supported platforms
 
 - Ubuntu 22.04 LTS
@@ -93,8 +158,52 @@ chmod +x saasvalidate.sh
 
 Run the standard validation:
 
+### Basic Usage
+
 ```bash
-./saasvalidate.sh
+sudo ./saasvalidate.sh
+```
+
+### With Report Generation
+
+```bash
+# Generate text report (default filename: pcd-validation-report.txt)
+sudo ./saasvalidate.sh --report
+
+# Generate report with custom filename
+sudo ./saasvalidate.sh --report my-server-validation.txt
+
+# Generate JSON report
+sudo ./saasvalidate.sh --report --report-format json
+
+# Generate both text and JSON reports
+sudo ./saasvalidate.sh --report --report-format both
+```
+
+### Command-Line Options
+
+- `-m, --check-multipath` - Enable optional check for multipath-tools package presence
+- `-r, --report [FILE]` - Generate validation report (default: pcd-validation-report.txt)
+- `--report-format FORMAT` - Report format: text, json, or both (default: text)
+- `-h, --help` - Show help message
+
+### Examples
+
+```bash
+# Run validation only
+sudo ./saasvalidate.sh
+
+# Run with multipath check
+sudo ./saasvalidate.sh --check-multipath
+
+# Run and generate text report
+sudo ./saasvalidate.sh --report
+
+# Run and generate JSON report for automation
+sudo ./saasvalidate.sh --report validation-$(hostname).json --report-format json
+
+# Run with all options
+sudo ./saasvalidate.sh --check-multipath --report --report-format both
 ```
 
 Enable the optional `multipath-tools` check:
