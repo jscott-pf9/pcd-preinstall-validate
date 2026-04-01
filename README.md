@@ -260,6 +260,7 @@ sudo ./saasvalidate.sh --report --report-format both
 - `-m, --check-multipath` - Enable optional check for multipath-tools package presence
 - `-r, --report [FILE]` - Generate validation report (default: pcd-validation-report.md)
 - `--report-format FORMAT` - Report format: text (Markdown), json, or both (default: text)
+- `--iscsi-discovery IP[:PORT]` - Optional iSCSI sendtargets discovery test (warns on failure)
 - `-h, --help` - Show help message
 
 ### Examples
@@ -276,6 +277,9 @@ sudo ./saasvalidate.sh --report
 
 # Run and generate JSON report for automation
 sudo ./saasvalidate.sh --report validation-$(hostname).json --report-format json
+
+# Optional: Test iSCSI discovery against a single portal (warns on failure)
+sudo ./saasvalidate.sh --iscsi-discovery 10.0.0.50
 
 # Run with all options
 sudo ./saasvalidate.sh --check-multipath --report --report-format both

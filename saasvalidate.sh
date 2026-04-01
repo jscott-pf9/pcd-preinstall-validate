@@ -21,6 +21,7 @@
  generate_report=0
  report_format="text"
  report_file=""
+ iscsi_discovery_portal=""
 
  # Report data storage
  declare -a report_data
@@ -72,6 +73,7 @@
     echo "  -m, --check-multipath          Enable multipath-tools check"
     echo "  -r, --report [FILE]            Generate report (default: pcd-validation-report.md)"
     echo "  --report-format FORMAT         Report format: text, json, or both (default: text)"
+    echo "  --iscsi-discovery IP[:PORT]    Optional: iSCSI sendtargets discovery test (warns on failure)"
     echo "  -h, --help                     Show this help message"
     echo ""
     echo "Examples:"
@@ -80,6 +82,7 @@
     echo "  $0 --report myreport                  # Run and save Markdown report to myreport.md"
     echo "  $0 --report --report-format json      # Generate JSON report"
     echo "  $0 --report --report-format both      # Generate both Markdown and JSON reports"
+    echo "  $0 --iscsi-discovery 10.0.0.50        # Run iSCSI discovery test against a portal"
  }
 
  # Parse CLI arguments
@@ -104,6 +107,16 @@
                  shift
              else
                  echo "Error: --report-format requires an argument (text, json, or both)"
+                 exit 2
+             fi
+             ;;
+         --iscsi-discovery)
+             shift
+             if [[ $# -gt 0 ]] && [[ ! "$1" =~ ^- ]]; then
+                 iscsi_discovery_portal="$1"
+                 shift
+             else
+                 echo "Error: --iscsi-discovery requires an argument (IP[:PORT])"
                  exit 2
              fi
              ;;
@@ -567,6 +580,44 @@
          else
              pass "iSCSI initiator name: $initiator_name"
          fi
+     fi
+ fi
+
+ # Check (optional): iSCSI sendtargets discovery test against a portal
+ if [[ -n "${iscsi_discovery_portal:-}" ]]; then
+     if command -v iscsiadm >/dev/null 2>&1; then
+         iscsi_discovery_cmd=(iscsiadm -m discovery -t sendtargets -p "$iscsi_discovery_portal")
+         if command -v timeout >/dev/null 2>&1; then
+             iscsi_discovery_out=$(timeout 10s "${iscsi_discovery_cmd[@]}" 2>&1)
+             iscsi_discovery_rc=$?
+             if [[ "$iscsi_discovery_rc" -eq 124 ]]; then
+                 warn "iSCSI discovery timed out (portal: $iscsi_discovery_portal)"
+             elif [[ "$iscsi_discovery_rc" -ne 0 ]]; then
+                 warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
+             else
+                 iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
+                 if [[ "$iscsi_target_count" -gt 0 ]]; then
+                     pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
+                 else
+                     warn "iSCSI discovery returned no targets (portal: $iscsi_discovery_portal)"
+                 fi
+             fi
+         else
+             iscsi_discovery_out=$("${iscsi_discovery_cmd[@]}" 2>&1)
+             iscsi_discovery_rc=$?
+             if [[ "$iscsi_discovery_rc" -ne 0 ]]; then
+                 warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
+             else
+                 iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
+                 if [[ "$iscsi_target_count" -gt 0 ]]; then
+                     pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
+                 else
+                     warn "iSCSI discovery returned no targets (portal: $iscsi_discovery_portal)"
+                 fi
+             fi
+         fi
+     else
+         warn "iSCSI discovery skipped: iscsiadm not installed (portal: $iscsi_discovery_portal)"
      fi
  fi
 
