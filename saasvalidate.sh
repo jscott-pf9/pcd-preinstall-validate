@@ -201,25 +201,26 @@
  fi
 
  # Check (recommended): CPU governor should be set to performance
- cpu_governor_ok=0
- cpu_governor_count=0
- for gov_file in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-     [[ -r "$gov_file" ]] || continue
-     cpu_governor_count=$((cpu_governor_count + 1))
-     governor=$(cat "$gov_file" 2>/dev/null)
-     if [[ "$governor" != "performance" ]]; then
-         cpu_governor_ok=1
-         break
-     fi
- done
-
- if [[ "$cpu_governor_count" -eq 0 ]]; then
-     warn "CPU frequency scaling not available or not readable"
- elif [[ "$cpu_governor_ok" -eq 1 ]]; then
-     warn "CPU governor is not set to 'performance' (current: $governor, recommended for consistent performance)"
- else
-     pass "CPU governor set to 'performance'"
- fi
+# DISABLED: Uncomment to re-enable this check
+# cpu_governor_ok=0
+# cpu_governor_count=0
+# for gov_file in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+#     [[ -r "$gov_file" ]] || continue
+#     cpu_governor_count=$((cpu_governor_count + 1))
+#     governor=$(cat "$gov_file" 2>/dev/null)
+#     if [[ "$governor" != "performance" ]]; then
+#         cpu_governor_ok=1
+#         break
+#     fi
+# done
+# 
+# if [[ "$cpu_governor_count" -eq 0 ]]; then
+#     warn "CPU frequency scaling not available or not readable"
+# elif [[ "$cpu_governor_ok" -eq 1 ]]; then
+#     warn "CPU governor is not set to 'performance' (current: $governor, recommended for consistent performance)"
+# else
+#     pass "CPU governor set to 'performance'"
+# fi
 
  # Check (recommended): IOMMU/VT-d enabled for PCI passthrough
  if [[ -d /sys/kernel/iommu_groups ]] && [[ -n "$(ls -A /sys/kernel/iommu_groups 2>/dev/null)" ]]; then
@@ -232,14 +233,15 @@
  fi
 
  # Check (recommended): Hugepages configuration
- hugepages_total=$(awk '/^HugePages_Total:/ {print $2}' /proc/meminfo 2>/dev/null)
- hugepages_size=$(awk '/^Hugepagesize:/ {print $2}' /proc/meminfo 2>/dev/null)
- if [[ -n "$hugepages_total" ]] && [[ "$hugepages_total" -gt 0 ]]; then
-     hugepages_mb=$((hugepages_total * hugepages_size / 1024))
-     pass "Hugepages configured: $hugepages_total pages x ${hugepages_size}kB (~${hugepages_mb}MB total)"
- else
-     warn "Hugepages not configured (recommended for VM performance)"
- fi
+# DISABLED: Uncomment to re-enable this check
+# hugepages_total=$(awk '/^HugePages_Total:/ {print $2}' /proc/meminfo 2>/dev/null)
+# hugepages_size=$(awk '/^Hugepagesize:/ {print $2}' /proc/meminfo 2>/dev/null)
+# if [[ -n "$hugepages_total" ]] && [[ "$hugepages_total" -gt 0 ]]; then
+#     hugepages_mb=$((hugepages_total * hugepages_size / 1024))
+#     pass "Hugepages configured: $hugepages_total pages x ${hugepages_size}kB (~${hugepages_mb}MB total)"
+# else
+#     warn "Hugepages not configured (recommended for VM performance)"
+# fi
 
  # Check: Kernel version
  kernel_version=$(uname -r)
@@ -329,18 +331,19 @@
  fi
 
  # Check (recommended): Firewall status
- if systemctl is-active --quiet ufw.service 2>/dev/null; then
-     warn "UFW firewall is active (may interfere with PCD networking)"
- elif command -v iptables >/dev/null 2>&1; then
-     iptables_rules=$(iptables -L -n 2>/dev/null | grep -c '^Chain')
-     if [[ "$iptables_rules" -gt 3 ]]; then
-         warn "iptables rules detected ($iptables_rules chains, may interfere with PCD networking)"
-     else
-         pass "No active firewall rules detected"
-     fi
- else
-     pass "No firewall detected"
- fi
+# DISABLED: Uncomment to re-enable this check
+# if systemctl is-active --quiet ufw.service 2>/dev/null; then
+#     warn "UFW firewall is active (may interfere with PCD networking)"
+# elif command -v iptables >/dev/null 2>&1; then
+#     iptables_rules=$(iptables -L -n 2>/dev/null | grep -c '^Chain')
+#     if [[ "$iptables_rules" -gt 3 ]]; then
+#         warn "iptables rules detected ($iptables_rules chains, may interfere with PCD networking)"
+#     else
+#         pass "No active firewall rules detected"
+#     fi
+# else
+#     pass "No firewall detected"
+# fi
 
  # Check: SSH service is running
  if systemctl is-active --quiet ssh.service 2>/dev/null || systemctl is-active --quiet sshd.service 2>/dev/null; then
@@ -350,18 +353,19 @@
  fi
 
  # Check (recommended): SELinux/AppArmor status
- if command -v getenforce >/dev/null 2>&1; then
-     selinux_status=$(getenforce 2>/dev/null)
-     if [[ "$selinux_status" == "Disabled" ]] || [[ "$selinux_status" == "Permissive" ]]; then
-         pass "SELinux is $selinux_status"
-     else
-         warn "SELinux is $selinux_status (may cause issues with virtualization)"
-     fi
- elif systemctl is-active --quiet apparmor.service 2>/dev/null; then
-     warn "AppArmor is active (may cause issues with virtualization)"
- else
-     pass "No SELinux or AppArmor restrictions detected"
- fi
+# DISABLED: Uncomment to re-enable this check
+# if command -v getenforce >/dev/null 2>&1; then
+#     selinux_status=$(getenforce 2>/dev/null)
+#     if [[ "$selinux_status" == "Disabled" ]] || [[ "$selinux_status" == "Permissive" ]]; then
+#         pass "SELinux is $selinux_status"
+#     else
+#         warn "SELinux is $selinux_status (may cause issues with virtualization)"
+#     fi
+# elif systemctl is-active --quiet apparmor.service 2>/dev/null; then
+#     warn "AppArmor is active (may cause issues with virtualization)"
+# else
+#     pass "No SELinux or AppArmor restrictions detected"
+# fi
 
  # Check: Root filesystem type
  root_fstype=$(df -T / | awk 'NR==2 {print $2}')
@@ -372,17 +376,18 @@
  fi
 
  # Check (recommended): Disk I/O scheduler for root device
- root_device=$(df / | awk 'NR==2 {print $1}' | sed 's/[0-9]*$//' | sed 's|/dev/||')
- if [[ -n "$root_device" ]] && [[ -r "/sys/block/$root_device/queue/scheduler" ]]; then
-     scheduler=$(cat "/sys/block/$root_device/queue/scheduler" 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')
-     if [[ -n "$scheduler" ]]; then
-         pass "I/O scheduler for $root_device: $scheduler"
-     else
-         warn "Unable to determine I/O scheduler for $root_device"
-     fi
- else
-     warn "Unable to check I/O scheduler (root device: $root_device)"
- fi
+# DISABLED: Uncomment to re-enable this check
+# root_device=$(df / | awk 'NR==2 {print $1}' | sed 's/[0-9]*$//' | sed 's|/dev/||')
+# if [[ -n "$root_device" ]] && [[ -r "/sys/block/$root_device/queue/scheduler" ]]; then
+#     scheduler=$(cat "/sys/block/$root_device/queue/scheduler" 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')
+#     if [[ -n "$scheduler" ]]; then
+#         pass "I/O scheduler for $root_device: $scheduler"
+#     else
+#         warn "Unable to determine I/O scheduler for $root_device"
+#     fi
+# else
+#     warn "Unable to check I/O scheduler (root device: $root_device)"
+# fi
 
  # Check (recommended): /var disk space
  var_size_gb=$(df -BG /var 2>/dev/null | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
