@@ -176,6 +176,14 @@
      warn "Swap not configured (recommended)"
  fi
 
+ # Check (recommended): Root filesystem free space >= 250GB
+ root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
+ if [ "$root_size_gb" -ge 250 ]; then
+     pass "Root file system size is $root_size_gb GB (≥ 250GB)"
+ else
+     warn "Root file system size is $root_size_gb GB (> 250GB recommended)"
+ fi
+
  # Check: Hardware virtualization extension present (vmx for Intel, svm for AMD)
  if grep -qE '(^flags\s*:.*\s(vmx|svm)\s)' /proc/cpuinfo 2>/dev/null; then
      pass "Hardware virtualization extensions present (vmx/svm)"
@@ -334,6 +342,24 @@
      pass "Active network interfaces: $active_interfaces"
  else
      warn "No active network interfaces detected (excluding loopback)"
+ fi
+
+ # Check (recommended): At least one bonded network with >= 2 member interfaces
+ bond_ok=0
+ if compgen -G "/proc/net/bonding/*" >/dev/null; then
+     for bond_file in /proc/net/bonding/*; do
+         [[ -r "$bond_file" ]] || continue
+         slave_count=$(grep -c '^Slave Interface:' "$bond_file" 2>/dev/null || true)
+         if [[ "$slave_count" -ge 2 ]]; then
+             bond_ok=1
+             break
+         fi
+     done
+ fi
+ if [[ "$bond_ok" -eq 1 ]]; then
+     pass "Bonded network detected with >= 2 interfaces"
+ else
+     warn "No bonded network detected with at least 2 interfaces (recommended)"
  fi
 
  # Check: DNS resolution working
@@ -691,14 +717,6 @@ for url in "${urls[@]}"; do
     progress=$(( (count * 100) / total_urls ))
     echo -ne "Progress: [$progress%] ($count/$total_urls)\r"
 done
-
-# Check (recommended): Root filesystem free space >= 250GB
-root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
-if [ "$root_size_gb" -ge 250 ]; then
-    pass "Root file system size is $root_size_gb GB (≥ 250GB)"
-else
-    warn "Root file system size is $root_size_gb GB (> 250GB recommended)"
-fi
 
 # Optional check: multipath-tools package installed
 if [[ "$check_multipath" -eq 1 ]]; then
