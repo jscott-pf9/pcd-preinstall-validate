@@ -544,9 +544,9 @@
  fi
 
  if [[ "$san_present" -eq 1 ]]; then
-     fail "SAN-backed storage appears to be presented to this host (${san_reasons[*]})"
+     fail "Preexisting SAN volumes detected on this host (${san_reasons[*]})"
  else
-     pass "No SAN-backed storage detected (iSCSI/FC/multipath)"
+     pass "No preexisting SAN volumes detected (iSCSI/FC/multipath)"
  fi
 
  # Check (recommended): iSCSI initiator name should not be default/template
