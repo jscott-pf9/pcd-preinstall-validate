@@ -31,7 +31,7 @@ The script performs a set of mandatory and recommended checks on a host before i
 
 ### Storage & Filesystem
 - Root filesystem type (ext4 or xfs recommended)
-- Root filesystem free space (>= 250GB recommended)
+- Root filesystem free space (100GB minimum required, >= 250GB recommended)
 - `/var` free space (>= 50GB recommended)
 - `/tmp` free space (>= 10GB recommended)
 - Disk I/O scheduler detection (recommended)

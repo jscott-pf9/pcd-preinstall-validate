@@ -228,12 +228,14 @@
      warn "Swap not configured (recommended)"
  fi
 
- # Check (recommended): Root filesystem free space >= 250GB
+ # Check: Root filesystem free space — 100GB required, 250GB recommended
  root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
  if [ "$root_size_gb" -ge 250 ]; then
-     pass "Root file system size is $root_size_gb GB (≥ 250GB)"
+     pass "Root filesystem free space: ${root_size_gb} GB (≥ 250GB)"
+ elif [ "$root_size_gb" -ge 100 ]; then
+     warn "Root filesystem free space: ${root_size_gb} GB (≥ 250GB recommended)"
  else
-     warn "Root file system size is $root_size_gb GB (> 250GB recommended)"
+     fail "Root filesystem free space: ${root_size_gb} GB (100GB minimum required)"
  fi
 
  # Check: Hardware virtualization extension present (vmx for Intel, svm for AMD)
