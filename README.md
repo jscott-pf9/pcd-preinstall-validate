@@ -218,9 +218,9 @@ cd pcd-preinstall-validate
 Option 2: Download just the script
 
 ```bash
-curl -fsSL -o saasvalidate.sh \
-  https://raw.githubusercontent.com/jscott-pf9/pcd-preinstall-validate/main/saasvalidate.sh
-chmod +x saasvalidate.sh
+curl -fsSL -o poc-validate.sh \
+  https://raw.githubusercontent.com/jscott-pf9/pcd-preinstall-validate/main/poc-validate.sh
+chmod +x poc-validate.sh
 ```
 
 ## Usage
@@ -228,7 +228,7 @@ chmod +x saasvalidate.sh
 Make the script executable (if needed):
 
 ```bash
-chmod +x saasvalidate.sh
+chmod +x poc-validate.sh
 ```
 
 Run the standard validation:
@@ -236,23 +236,23 @@ Run the standard validation:
 ### Basic Usage
 
 ```bash
-sudo ./saasvalidate.sh
+sudo ./poc-validate.sh
 ```
 
 ### With Report Generation
 
 ```bash
 # Generate Markdown report (default filename: pcd-validation-report.md)
-sudo ./saasvalidate.sh --report
+sudo ./poc-validate.sh --report
 
 # Generate report with custom filename
-sudo ./saasvalidate.sh --report my-server-validation
+sudo ./poc-validate.sh --report my-server-validation
 
 # Generate JSON report
-sudo ./saasvalidate.sh --report --report-format json
+sudo ./poc-validate.sh --report --report-format json
 
 # Generate both Markdown and JSON reports
-sudo ./saasvalidate.sh --report --report-format both
+sudo ./poc-validate.sh --report --report-format both
 ```
 
 ### Command-Line Options
@@ -267,36 +267,36 @@ sudo ./saasvalidate.sh --report --report-format both
 
 ```bash
 # Run validation only
-sudo ./saasvalidate.sh
+sudo ./poc-validate.sh
 
 # Run with multipath check
-sudo ./saasvalidate.sh --check-multipath
+sudo ./poc-validate.sh --check-multipath
 
 # Run and generate text report
-sudo ./saasvalidate.sh --report
+sudo ./poc-validate.sh --report
 
 # Run and generate JSON report for automation
-sudo ./saasvalidate.sh --report validation-$(hostname).json --report-format json
+sudo ./poc-validate.sh --report validation-$(hostname).json --report-format json
 
 # Optional: Test iSCSI discovery against a single portal (warns on failure)
-sudo ./saasvalidate.sh --iscsi-discovery 10.0.0.50
+sudo ./poc-validate.sh --iscsi-discovery 10.0.0.50
 
 # Run with all options
-sudo ./saasvalidate.sh --check-multipath --report --report-format both
+sudo ./poc-validate.sh --check-multipath --report --report-format both
 ```
 
 Enable the optional `multipath-tools` check:
 
 ```bash
-./saasvalidate.sh --check-multipath
+./poc-validate.sh --check-multipath
 # or
-./saasvalidate.sh -m
+./poc-validate.sh -m
 ```
 
 Show help:
 
 ```bash
-./saasvalidate.sh --help
+./poc-validate.sh --help
 ```
 
 ## Exit codes

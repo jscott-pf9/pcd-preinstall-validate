@@ -4,12 +4,17 @@
  # Supported OS: Ubuntu 22.04 LTS / Ubuntu 24.04 LTS
  #
  # Usage:
- #   ./saasvalidate.sh
- #   ./saasvalidate.sh --check-multipath
+ #   ./poc-validate.sh [OPTIONS]
  #
  # Optional flags:
- #   -m, --check-multipath   Warn/fail output for presence of multipath-tools package (optional check)
- #   -h, --help              Show usage
+ #   -m, --check-multipath          Warn/fail if multipath-tools is not installed (optional check)
+ #   --install-mode A|B             A = pcdctl only (default); B = also checks Python/pyenv endpoints
+ #   --pcd-url URL                  Test reachability of the environment-specific PCD management plane URL
+ #   --proxy URL                    HTTP(S) proxy for outbound curl checks (e.g. http://proxy.corp:3128)
+ #   -r, --report [FILE]            Generate validation report (default: pcd-validation-report.md)
+ #   --report-format FORMAT         text, json, or both (default: text)
+ #   --iscsi-discovery IP[:PORT]    Optional iSCSI sendtargets discovery test (warns on failure)
+ #   -h, --help                     Show usage
  #
  # Exit codes:
  #   0  All mandatory checks passed
@@ -23,6 +28,9 @@
  report_file=""
  iscsi_discovery_portal=""
  iscsi_discovery_report=""
+ install_mode="A"
+ pcd_url=""
+ proxy_url=""
 
  # Report data storage
  declare -a report_data
@@ -72,18 +80,23 @@
     echo ""
     echo "Options:"
     echo "  -m, --check-multipath          Enable multipath-tools check"
+    echo "  --install-mode A|B             A = pcdctl only (default); B = also checks Python/pyenv endpoints"
+    echo "  --pcd-url URL                  Test reachability of the PCD management plane URL (mandatory when provided)"
+    echo "  --proxy URL                    HTTP(S) proxy for outbound connectivity checks"
     echo "  -r, --report [FILE]            Generate report (default: pcd-validation-report.md)"
     echo "  --report-format FORMAT         Report format: text, json, or both (default: text)"
     echo "  --iscsi-discovery IP[:PORT]    Optional: iSCSI sendtargets discovery test (warns on failure)"
     echo "  -h, --help                     Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                    # Run validation only"
-    echo "  $0 --report                           # Run and save Markdown report to pcd-validation-report.md"
-    echo "  $0 --report myreport                  # Run and save Markdown report to myreport.md"
-    echo "  $0 --report --report-format json      # Generate JSON report"
-    echo "  $0 --report --report-format both      # Generate both Markdown and JSON reports"
-    echo "  $0 --iscsi-discovery 10.0.0.50        # Run iSCSI discovery test against a portal"
+    echo "  $0                                              # Run validation only (Mode A)"
+    echo "  $0 --install-mode B                            # Also check Python/pyenv endpoints (Mode B)"
+    echo "  $0 --pcd-url https://pcd.example.com          # Validate PCD management plane reachability"
+    echo "  $0 --proxy http://proxy.corp:3128              # Use proxy for outbound checks"
+    echo "  $0 --report                                    # Run and save Markdown report"
+    echo "  $0 --report --report-format json               # Generate JSON report"
+    echo "  $0 --report --report-format both               # Generate both Markdown and JSON reports"
+    echo "  $0 --iscsi-discovery 10.0.0.50                 # Run iSCSI discovery test against a portal"
  }
 
  # Parse CLI arguments
@@ -92,6 +105,40 @@
          -m|--check-multipath)
              check_multipath=1
              shift
+             ;;
+         --install-mode)
+             shift
+             if [[ $# -gt 0 ]]; then
+                 install_mode="${1^^}"
+                 if [[ "$install_mode" != "A" && "$install_mode" != "B" ]]; then
+                     echo "Error: --install-mode must be A or B"
+                     exit 2
+                 fi
+                 shift
+             else
+                 echo "Error: --install-mode requires an argument (A or B)"
+                 exit 2
+             fi
+             ;;
+         --pcd-url)
+             shift
+             if [[ $# -gt 0 ]] && [[ ! "$1" =~ ^- ]]; then
+                 pcd_url="$1"
+                 shift
+             else
+                 echo "Error: --pcd-url requires a URL"
+                 exit 2
+             fi
+             ;;
+         --proxy)
+             shift
+             if [[ $# -gt 0 ]] && [[ ! "$1" =~ ^- ]]; then
+                 proxy_url="$1"
+                 shift
+             else
+                 echo "Error: --proxy requires a URL (e.g. http://proxy.corp:3128)"
+                 exit 2
+             fi
              ;;
          -r|--report)
              generate_report=1
@@ -136,6 +183,11 @@
  # Set default report filename if not specified
  if [[ "$generate_report" -eq 1 ]] && [[ -z "$report_file" ]]; then
      report_file="pcd-validation-report"
+ fi
+
+ # Inherit proxy from environment if not set via --proxy
+ if [[ -z "$proxy_url" ]]; then
+     proxy_url="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
  fi
 
  # Check: Platform9 PCD supports x86_64 hosts
@@ -688,8 +740,9 @@
  fi
 
  # Check: Outbound connectivity for required endpoints (curl HEAD)
- # Ref: https://docs.platform9.com/private-cloud-director/getting-started/pre-requisites
- # Array of URLs to check
+ # Ref: pcdctl-installation-guide-restricted-networks — Section 3
+ #
+ # Mode A (pcdctl only — recommended for restricted networks):
  urls=(
      "https://pcdctl.s3.us-west-2.amazonaws.com/pcdctl-setup"
      "http://security.ubuntu.com/ubuntu"
@@ -699,29 +752,68 @@
      "https://wiki.ubuntu.com/OpenStack/CloudArchive"
  )
 
+ # Mode B additional endpoints (full install: pcdctl + OpenStack CLIs):
+ mode_b_urls=(
+     "https://github.com"
+     "https://www.python.org"
+     "https://pypi.org"
+     "https://files.pythonhosted.org"
+ )
+
  # Function to check URL accessibility
+ # Uses --connect-timeout / --max-time to surface silent firewall drops quickly
+ # (per PDF troubleshooting: blocked CDN endpoints appear as hangs, not errors)
  check_url() {
-     url="$1"
-     if curl --output /dev/null --silent --head --fail "$url"; then
-         pass "$url"
+     local url="$1"
+     local -a curl_opts=(--output /dev/null --silent --head --fail --connect-timeout 10 --max-time 15)
+     [[ -n "${proxy_url:-}" ]] && curl_opts+=(--proxy "$proxy_url")
+     if curl "${curl_opts[@]}" "$url"; then
+         pass "Reachable: $url"
      else
-         fail "$url"
+         local rc=$?
+         if [[ $rc -eq 28 ]]; then
+             fail "Timeout: $url (firewall may be silently dropping packets — request FQDN-based allow rule)"
+         else
+             fail "Unreachable: $url (curl exit $rc)"
+         fi
      fi
  }
 
-# Total number of URLs to check
-total_urls=${#urls[@]}
+ # Optional: PCD management plane URL (environment-specific, Section 3.1)
+ if [[ -n "$pcd_url" ]]; then
+     echo "Checking PCD management plane URL..."
+     check_url "$pcd_url"
+ fi
 
-# Loop through URLs and check with a progress meter
-count=0
-for url in "${urls[@]}"; do
-    count=$((count + 1))
-    check_url "$url"
-    
-    # Progress Meter
-    progress=$(( (count * 100) / total_urls ))
-    echo -ne "Progress: [$progress%] ($count/$total_urls)\r"
-done
+ # Mode A mandatory endpoints
+ echo "Checking Mode A (pcdctl) endpoints..."
+ total_urls=${#urls[@]}
+ count=0
+ for url in "${urls[@]}"; do
+     count=$((count + 1))
+     check_url "$url"
+     progress=$(( (count * 100) / total_urls ))
+     echo -ne "Progress: [$progress%] ($count/$total_urls)\r"
+ done
+ echo ""
+
+ # Mode B additional endpoints (full install)
+ if [[ "$install_mode" == "B" ]]; then
+     echo "Checking Mode B (full install) endpoints..."
+     for url in "${mode_b_urls[@]}"; do
+         check_url "$url"
+     done
+ fi
+
+ # Warn if a proxy is in active use but not persisted for future sessions / APT
+ if [[ -n "${proxy_url:-}" ]]; then
+     if ! grep -qE '(http_proxy|https_proxy|HTTP_PROXY|HTTPS_PROXY)' /etc/environment 2>/dev/null; then
+         warn "Proxy in use but not set in /etc/environment — run poc-prep.sh --proxy ${proxy_url} to persist it"
+     fi
+     if ! grep -rqE 'Acquire::.*Proxy' /etc/apt/apt.conf /etc/apt/apt.conf.d/ 2>/dev/null; then
+         warn "Proxy in use but not configured for APT — run poc-prep.sh --proxy ${proxy_url} to persist it"
+     fi
+ fi
 
 # Optional check: multipath-tools package installed
 if [[ "$check_multipath" -eq 1 ]]; then
@@ -976,7 +1068,7 @@ if [[ "$generate_report" -eq 1 ]]; then
             echo "    \"generated_at\": \"$timestamp\","
             echo "    \"hostname\": \"$hostname\","
             echo "    \"os\": \"${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}\","
-            echo "    \"script_version\": \"1.0\""
+            echo "    \"script_version\": \"2.0\""
             echo "  },"
             echo "  \"summary\": {"
             
