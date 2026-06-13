@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="1.0"
+SCRIPT_VERSION="1.0"
 
 usage() {
-  echo "poc-prep.sh v${VERSION}"
+  echo "poc-prep.sh v${SCRIPT_VERSION}"
   echo "Usage: $0 [OPTIONS]"
   echo ""
   echo "Options:"
@@ -536,7 +536,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -V|--version)
-      echo "poc-prep.sh v${VERSION}"
+      echo "poc-prep.sh v${SCRIPT_VERSION}"
       exit 0
       ;;
     -h|--help)

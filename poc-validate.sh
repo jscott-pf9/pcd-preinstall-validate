@@ -22,7 +22,7 @@
  #   2  Invalid arguments
 
  check_multipath=0
- VERSION="2.1"
+ SCRIPT_VERSION="2.1"
  fail_count=0
  generate_report=0
  report_format="text"
@@ -76,7 +76,7 @@
 
  # CLI usage
  usage() {
-    echo "poc-validate.sh v${VERSION}"
+    echo "poc-validate.sh v${SCRIPT_VERSION}"
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
@@ -155,7 +155,7 @@
              fi
              ;;
          -V|--version)
-             echo "poc-validate.sh v${VERSION}"
+             echo "poc-validate.sh v${SCRIPT_VERSION}"
              exit 0
              ;;
          -h|--help)
@@ -1067,7 +1067,7 @@ if [[ "$generate_report" -eq 1 ]]; then
             echo "    \"generated_at\": \"$timestamp\","
             echo "    \"hostname\": \"$hostname\","
             echo "    \"os\": \"${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}\","
-            echo "    \"script_version\": \"${VERSION}\""
+            echo "    \"script_version\": \"${SCRIPT_VERSION}\""
             echo "  },"
             echo "  \"summary\": {"
             
