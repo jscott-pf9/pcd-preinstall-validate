@@ -8,7 +8,6 @@
  #
  # Optional flags:
  #   -m, --check-multipath          Warn/fail if multipath-tools is not installed (optional check)
- #   --install-mode A|B             A = pcdctl only (default); B = also checks Python/pyenv endpoints
  #   --pcd-url URL                  Test reachability of the environment-specific PCD management plane URL
  #   --proxy URL                    HTTP(S) proxy for outbound curl checks (e.g. http://proxy.corp:3128)
  #   -r, --report [FILE]            Generate validation report (default: pcd-validation-report.md)
@@ -28,7 +27,6 @@
  report_file=""
  iscsi_discovery_portal=""
  iscsi_discovery_report=""
- install_mode="A"
  pcd_url=""
  proxy_url=""
 
@@ -80,7 +78,6 @@
     echo ""
     echo "Options:"
     echo "  -m, --check-multipath          Enable multipath-tools check"
-    echo "  --install-mode A|B             A = pcdctl only (default); B = also checks Python/pyenv endpoints"
     echo "  --pcd-url URL                  Test reachability of the PCD management plane URL (mandatory when provided)"
     echo "  --proxy URL                    HTTP(S) proxy for outbound connectivity checks"
     echo "  -r, --report [FILE]            Generate report (default: pcd-validation-report.md)"
@@ -89,8 +86,7 @@
     echo "  -h, --help                     Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0                                              # Run validation only (Mode A)"
-    echo "  $0 --install-mode B                            # Also check Python/pyenv endpoints (Mode B)"
+    echo "  $0                                              # Run validation"
     echo "  $0 --pcd-url https://pcd.example.com          # Validate PCD management plane reachability"
     echo "  $0 --proxy http://proxy.corp:3128              # Use proxy for outbound checks"
     echo "  $0 --report                                    # Run and save Markdown report"
@@ -105,20 +101,6 @@
          -m|--check-multipath)
              check_multipath=1
              shift
-             ;;
-         --install-mode)
-             shift
-             if [[ $# -gt 0 ]]; then
-                 install_mode="${1^^}"
-                 if [[ "$install_mode" != "A" && "$install_mode" != "B" ]]; then
-                     echo "Error: --install-mode must be A or B"
-                     exit 2
-                 fi
-                 shift
-             else
-                 echo "Error: --install-mode requires an argument (A or B)"
-                 exit 2
-             fi
              ;;
          --pcd-url)
              shift
@@ -742,24 +724,34 @@
  fi
 
  # Check: Outbound connectivity for required endpoints (curl HEAD)
- # Ref: pcdctl-installation-guide-restricted-networks — Section 3
- #
- # Mode A (pcdctl only — recommended for restricted networks):
+ # Ref: /opt/pf9/dependencies/urls.txt (full PCD deployment endpoint list)
  urls=(
      "https://pcdctl.s3.us-west-2.amazonaws.com/pcdctl-setup"
-     "http://security.ubuntu.com/ubuntu"
-     "http://us.archive.ubuntu.com/ubuntu"
-     "http://ubuntu-cloud.archive.canonical.com/ubuntu"
-     "http://nova.clouds.archive.ubuntu.com/ubuntu"
+     "https://security.ubuntu.com/ubuntu"
+     "https://us.archive.ubuntu.com/ubuntu"
+     "https://ubuntu-cloud.archive.canonical.com/ubuntu"
+     "https://nova.clouds.archive.ubuntu.com/ubuntu"
      "https://wiki.ubuntu.com/OpenStack/CloudArchive"
- )
-
- # Mode B additional endpoints (full install: pcdctl + OpenStack CLIs):
- mode_b_urls=(
-     "https://github.com"
-     "https://www.python.org"
-     "https://pypi.org"
+     "https://api.snapcraft.io"
+     "https://auth.docker.io"
+     "https://cdn01.quay.io"
+     "https://check.percona.com"
+     "https://checkpoint-api.hashicorp.com"
+     "https://cr.fluentbit.io"
+     "https://dockermirror.platform9.io"
+     "https://gcr.io"
+     "https://pf9-airctl.s3-accelerate.amazonaws.com"
+     "https://prod-registry-k8s-io-us-east-1.s3.dualstack.us-east-1.amazonaws.com"
+     "https://production.cloudflare.docker.com"
+     "https://quay.io"
+     "https://registry-1.docker.io"
+     "https://registry.k8s.io"
+     "https://us-east4-docker.pkg.dev"
+     "https://usage.projectcalico.org"
+     "https://fedorapeople.org/"
+     "https://ghcr.io/"
      "https://files.pythonhosted.org"
+     "https://pypi.org"
  )
 
  # Function to check URL accessibility
@@ -781,14 +773,14 @@
      fi
  }
 
- # Optional: PCD management plane URL (environment-specific, Section 3.1)
+ # Optional: PCD management plane URL (environment-specific)
  if [[ -n "$pcd_url" ]]; then
      echo "Checking PCD management plane URL..."
      check_url "$pcd_url"
  fi
 
- # Mode A mandatory endpoints
- echo "Checking Mode A (pcdctl) endpoints..."
+ # Full deployment endpoint check
+ echo "Checking required endpoints..."
  total_urls=${#urls[@]}
  count=0
  for url in "${urls[@]}"; do
@@ -798,14 +790,6 @@
      echo -ne "Progress: [$progress%] ($count/$total_urls)\r"
  done
  echo ""
-
- # Mode B additional endpoints (full install)
- if [[ "$install_mode" == "B" ]]; then
-     echo "Checking Mode B (full install) endpoints..."
-     for url in "${mode_b_urls[@]}"; do
-         check_url "$url"
-     done
- fi
 
  # Warn if a proxy is in active use but not persisted for future sessions / APT
  if [[ -n "${proxy_url:-}" ]]; then
