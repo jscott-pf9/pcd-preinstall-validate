@@ -180,6 +180,8 @@
      proxy_url="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
  fi
 
+ # ── Group 1: Hardware & System ───────────────────────────────────────────────
+
  # Check: Platform9 PCD supports x86_64 hosts
  arch=$(uname -m)
  if [[ "$arch" == "x86_64" ]]; then
@@ -207,25 +209,6 @@
      fi
  else
      fail "RAM: unable to determine (>= 16GB required)"
- fi
-
- # Check (recommended): Swap configured
- swap_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
- if [[ -n "$swap_kb" ]] && [[ "$swap_kb" -gt 0 ]]; then
-     swap_gb=$(( (swap_kb + 1024*1024 - 1) / (1024*1024) ))
-     pass "Swap configured: ~${swap_gb}GB"
- else
-     warn "Swap not configured (recommended)"
- fi
-
- # Check: Root filesystem free space — 100GB required, 250GB recommended
- root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
- if [ "$root_size_gb" -ge 250 ]; then
-     pass "Root filesystem free space: ${root_size_gb} GB (≥ 250GB)"
- elif [ "$root_size_gb" -ge 100 ]; then
-     warn "Root filesystem free space: ${root_size_gb} GB (≥ 250GB recommended)"
- else
-     fail "Root filesystem free space: ${root_size_gb} GB (100GB minimum required)"
  fi
 
  # Check: Hardware virtualization extension present (vmx for Intel, svm for AMD)
@@ -288,7 +271,7 @@
 #         break
 #     fi
 # done
-# 
+#
 # if [[ "$cpu_governor_count" -eq 0 ]]; then
 #     warn "CPU frequency scaling not available or not readable"
 # elif [[ "$cpu_governor_ok" -eq 1 ]]; then
@@ -336,6 +319,245 @@
          pass "System load average: $load_avg (${load_per_cpu} per CPU)"
      fi
  fi
+
+ # Check (recommended): Nested virtualization support
+ if [[ -r /sys/module/kvm_intel/parameters/nested ]]; then
+     nested_intel=$(cat /sys/module/kvm_intel/parameters/nested 2>/dev/null)
+     if [[ "$nested_intel" == "Y" ]] || [[ "$nested_intel" == "1" ]]; then
+         pass "Nested virtualization enabled (Intel)"
+     else
+         warn "Nested virtualization disabled (Intel) - enable if running on VMs"
+     fi
+ elif [[ -r /sys/module/kvm_amd/parameters/nested ]]; then
+     nested_amd=$(cat /sys/module/kvm_amd/parameters/nested 2>/dev/null)
+     if [[ "$nested_amd" == "Y" ]] || [[ "$nested_amd" == "1" ]]; then
+         pass "Nested virtualization enabled (AMD)"
+     else
+         warn "Nested virtualization disabled (AMD) - enable if running on VMs"
+     fi
+ else
+     pass "Nested virtualization check skipped (not running on VM or KVM modules not loaded)"
+ fi
+
+ # Check (recommended): libvirt/qemu should not be pre-installed
+ libvirt_installed=0
+ if dpkg -s libvirt-daemon-system >/dev/null 2>&1 || dpkg -s libvirt-bin >/dev/null 2>&1; then
+     libvirt_installed=1
+ fi
+ if dpkg -s qemu-kvm >/dev/null 2>&1 || dpkg -s qemu-system-x86 >/dev/null 2>&1; then
+     libvirt_installed=1
+ fi
+
+ if [[ "$libvirt_installed" -eq 1 ]]; then
+     warn "libvirt or qemu packages detected (may conflict with PCD installation)"
+ else
+     pass "No conflicting libvirt/qemu packages detected"
+ fi
+
+ # ── Group 2: Storage & SAN ────────────────────────────────────────────────────
+
+ # Check: Root filesystem type
+ root_fstype=$(df -T / | awk 'NR==2 {print $2}')
+ if [[ "$root_fstype" == "ext4" ]] || [[ "$root_fstype" == "xfs" ]]; then
+     pass "Root filesystem type: $root_fstype"
+ else
+     warn "Root filesystem type is $root_fstype (ext4 or xfs recommended)"
+ fi
+
+ # Check (recommended): Disk I/O scheduler for root device
+# DISABLED: Uncomment to re-enable this check
+# root_device=$(df / | awk 'NR==2 {print $1}' | sed 's/[0-9]*$//' | sed 's|/dev/||')
+# if [[ -n "$root_device" ]] && [[ -r "/sys/block/$root_device/queue/scheduler" ]]; then
+#     scheduler=$(cat "/sys/block/$root_device/queue/scheduler" 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')
+#     if [[ -n "$scheduler" ]]; then
+#         pass "I/O scheduler for $root_device: $scheduler"
+#     else
+#         warn "Unable to determine I/O scheduler for $root_device"
+#     fi
+# else
+#     warn "Unable to check I/O scheduler (root device: $root_device)"
+# fi
+
+ # Check: Root filesystem free space — 100GB required, 250GB recommended
+ root_size_gb=$(df -BG / | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
+ if [ "$root_size_gb" -ge 250 ]; then
+     pass "Root filesystem free space: ${root_size_gb} GB (≥ 250GB)"
+ elif [ "$root_size_gb" -ge 100 ]; then
+     warn "Root filesystem free space: ${root_size_gb} GB (≥ 250GB recommended)"
+ else
+     fail "Root filesystem free space: ${root_size_gb} GB (100GB minimum required)"
+ fi
+
+ # Check (recommended): /var disk space
+ var_size_gb=$(df -BG /var 2>/dev/null | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
+ if [[ -n "$var_size_gb" ]] && [[ "$var_size_gb" -ge 50 ]]; then
+     pass "/var free space: ${var_size_gb}GB (>= 50GB recommended)"
+ elif [[ -n "$var_size_gb" ]]; then
+     warn "/var free space: ${var_size_gb}GB (>= 50GB recommended)"
+ else
+     warn "Unable to determine /var free space"
+ fi
+
+ # Check (recommended): /tmp disk space
+ tmp_size_gb=$(df -BG /tmp 2>/dev/null | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
+ if [[ -n "$tmp_size_gb" ]] && [[ "$tmp_size_gb" -ge 10 ]]; then
+     pass "/tmp free space: ${tmp_size_gb}GB (>= 10GB recommended)"
+ elif [[ -n "$tmp_size_gb" ]]; then
+     warn "/tmp free space: ${tmp_size_gb}GB (>= 10GB recommended)"
+ else
+     warn "Unable to determine /tmp free space"
+ fi
+
+ # Check (recommended): Swap configured
+ swap_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
+ if [[ -n "$swap_kb" ]] && [[ "$swap_kb" -gt 0 ]]; then
+     swap_gb=$(( (swap_kb + 1024*1024 - 1) / (1024*1024) ))
+     pass "Swap configured: ~${swap_gb}GB"
+ else
+     warn "Swap not configured (recommended)"
+ fi
+
+ # Check (recommended): If lvm2 is installed, LVM device filters should be configured
+ # Ref: https://docs.platform9.com/private-cloud-director/getting-started/pre-requisites/hypervisor-lvm-configuration
+ if dpkg -s lvm2 >/dev/null 2>&1; then
+     if [[ -r /etc/lvm/lvm.conf ]]; then
+         lvm_filter_line=$(grep -E '^[[:space:]]*filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1)
+         lvm_global_filter_line=$(grep -E '^[[:space:]]*global_filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1)
+
+         if [[ -z "$lvm_filter_line" ]]; then
+             fail "lvm2 detected but /etc/lvm/lvm.conf filter is not set (configure LVM device filters)"
+         fi
+
+         if [[ -z "$lvm_global_filter_line" ]]; then
+             fail "lvm2 detected but /etc/lvm/lvm.conf global_filter is not set (configure LVM device filters)"
+         fi
+     else
+         fail "lvm2 detected but /etc/lvm/lvm.conf is not readable; cannot validate LVM filter configuration"
+     fi
+ fi
+
+ # Check: No preexisting SAN volumes (multipath maps, iSCSI sessions, FC LUNs)
+ san_present=0
+ san_reasons=()
+
+ if command -v multipath >/dev/null 2>&1; then
+     mp_out=$(multipath -ll 2>/dev/null)
+     if [[ -n "${mp_out:-}" ]] && ! echo "$mp_out" | grep -qiE '(^|[[:space:]])(no maps|no multipath)([[:space:]]|$)'; then
+         san_present=1
+         san_reasons+=("multipath maps detected")
+     fi
+ else
+     if [[ -d /dev/mapper ]]; then
+         while IFS= read -r dm_name; do
+             [[ -n "$dm_name" ]] || continue
+             if udevadm info --query=property --name="/dev/mapper/$dm_name" 2>/dev/null | grep -qE '^DM_UUID=mpath-'; then
+                 san_present=1
+                 san_reasons+=("multipath device detected (/dev/mapper/$dm_name)")
+                 break
+             fi
+         done < <(ls -1 /dev/mapper 2>/dev/null | grep -v '^control$' || true)
+     fi
+ fi
+
+ if command -v iscsiadm >/dev/null 2>&1; then
+     iscsi_sessions=$(iscsiadm -m session 2>/dev/null || true)
+     if [[ -n "${iscsi_sessions:-}" ]]; then
+         san_present=1
+         san_reasons+=("active iSCSI sessions detected")
+     fi
+ fi
+
+ if [[ -d /sys/class/fc_host ]] && compgen -G "/sys/class/fc_host/host*" >/dev/null; then
+     fc_luns=$(lsblk -dn -o TRAN 2>/dev/null | awk '$1=="fc" {print; exit}')
+     if [[ -n "${fc_luns:-}" ]]; then
+         san_present=1
+         san_reasons+=("FC-attached LUNs appear to be visible")
+     fi
+ fi
+
+ if [[ "$san_present" -eq 1 ]]; then
+     fail "Preexisting SAN volumes detected on this host (${san_reasons[*]})"
+ else
+     pass "No preexisting SAN volumes detected (iSCSI/FC/multipath)"
+ fi
+
+ # Check (recommended): iSCSI initiator name should not be default/template
+ if [[ -r /etc/iscsi/initiatorname.iscsi ]]; then
+     initiator_name=$(grep -E '^InitiatorName=' /etc/iscsi/initiatorname.iscsi 2>/dev/null | cut -d= -f2)
+     if [[ -n "$initiator_name" ]]; then
+         is_default=0
+         if echo "$initiator_name" | grep -qE '^iqn\.1993-08\.org\.debian:01:'; then
+             is_default=1
+         elif echo "$initiator_name" | grep -qE '^iqn\.2004-10\.com\.ubuntu:01:'; then
+             is_default=1
+         elif echo "$initiator_name" | grep -qE ':(01|02):'; then
+             is_default=1
+         fi
+
+         if [[ "$is_default" -eq 1 ]]; then
+             warn "iSCSI initiator name appears to be default/template: $initiator_name (verify uniqueness across all nodes)"
+         else
+             pass "iSCSI initiator name: $initiator_name"
+         fi
+     fi
+ fi
+
+ # Check (optional): iSCSI sendtargets discovery test against a portal
+ if [[ -n "${iscsi_discovery_portal:-}" ]]; then
+     if command -v iscsiadm >/dev/null 2>&1; then
+         iscsi_discovery_cmd=(iscsiadm -m discovery -t sendtargets -p "$iscsi_discovery_portal")
+         if command -v timeout >/dev/null 2>&1; then
+             iscsi_discovery_out=$(timeout 10s "${iscsi_discovery_cmd[@]}" 2>&1)
+             iscsi_discovery_rc=$?
+             if [[ "$iscsi_discovery_rc" -eq 124 ]]; then
+                 iscsi_discovery_report="(timeout)"
+                 warn "iSCSI discovery timed out (portal: $iscsi_discovery_portal)"
+             elif [[ "$iscsi_discovery_rc" -ne 0 ]]; then
+                 iscsi_discovery_report="$iscsi_discovery_out"
+                 warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
+             else
+                 iscsi_discovery_report="$iscsi_discovery_out"
+                 iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
+                 if [[ "$iscsi_target_count" -gt 0 ]]; then
+                     pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
+                 else
+                     warn "iSCSI discovery returned no targets (portal: $iscsi_discovery_portal)"
+                 fi
+             fi
+         else
+             iscsi_discovery_out=$("${iscsi_discovery_cmd[@]}" 2>&1)
+             iscsi_discovery_rc=$?
+             if [[ "$iscsi_discovery_rc" -ne 0 ]]; then
+                 iscsi_discovery_report="$iscsi_discovery_out"
+                 warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
+             else
+                 iscsi_discovery_report="$iscsi_discovery_out"
+                 iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
+                 if [[ "$iscsi_target_count" -gt 0 ]]; then
+                     pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
+                 else
+                     warn "iSCSI discovery returned no targets (portal: $iscsi_discovery_portal)"
+                 fi
+             fi
+         fi
+     else
+         iscsi_discovery_report="iscsiadm not installed"
+         warn "iSCSI discovery skipped: iscsiadm not installed (portal: $iscsi_discovery_portal)"
+     fi
+ fi
+
+ # Check (optional): multipath-tools package installed
+ if [[ "$check_multipath" -eq 1 ]]; then
+     if dpkg -s multipath-tools >/dev/null 2>&1; then
+         pass "multipath-tools is installed"
+     else
+         fail "multipath-tools is NOT installed"
+     fi
+ else
+     echo "Skipping multipath-tools check (enable with --check-multipath or -m)"
+ fi
+
+ # ── Group 3: Network & Services ───────────────────────────────────────────────
 
  # Check: cloud-init must be disabled
  # If cloud-init is enabled it can overwrite network configuration and break static netplan.
@@ -460,48 +682,6 @@
 #     pass "No SELinux or AppArmor restrictions detected"
 # fi
 
- # Check: Root filesystem type
- root_fstype=$(df -T / | awk 'NR==2 {print $2}')
- if [[ "$root_fstype" == "ext4" ]] || [[ "$root_fstype" == "xfs" ]]; then
-     pass "Root filesystem type: $root_fstype"
- else
-     warn "Root filesystem type is $root_fstype (ext4 or xfs recommended)"
- fi
-
- # Check (recommended): Disk I/O scheduler for root device
-# DISABLED: Uncomment to re-enable this check
-# root_device=$(df / | awk 'NR==2 {print $1}' | sed 's/[0-9]*$//' | sed 's|/dev/||')
-# if [[ -n "$root_device" ]] && [[ -r "/sys/block/$root_device/queue/scheduler" ]]; then
-#     scheduler=$(cat "/sys/block/$root_device/queue/scheduler" 2>/dev/null | grep -o '\[.*\]' | tr -d '[]')
-#     if [[ -n "$scheduler" ]]; then
-#         pass "I/O scheduler for $root_device: $scheduler"
-#     else
-#         warn "Unable to determine I/O scheduler for $root_device"
-#     fi
-# else
-#     warn "Unable to check I/O scheduler (root device: $root_device)"
-# fi
-
- # Check (recommended): /var disk space
- var_size_gb=$(df -BG /var 2>/dev/null | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
- if [[ -n "$var_size_gb" ]] && [[ "$var_size_gb" -ge 50 ]]; then
-     pass "/var free space: ${var_size_gb}GB (>= 50GB recommended)"
- elif [[ -n "$var_size_gb" ]]; then
-     warn "/var free space: ${var_size_gb}GB (>= 50GB recommended)"
- else
-     warn "Unable to determine /var free space"
- fi
-
- # Check (recommended): /tmp disk space
- tmp_size_gb=$(df -BG /tmp 2>/dev/null | awk 'NR==2 {print substr($4, 1, length($4)-1)}')
- if [[ -n "$tmp_size_gb" ]] && [[ "$tmp_size_gb" -ge 10 ]]; then
-     pass "/tmp free space: ${tmp_size_gb}GB (>= 10GB recommended)"
- elif [[ -n "$tmp_size_gb" ]]; then
-     warn "/tmp free space: ${tmp_size_gb}GB (>= 10GB recommended)"
- else
-     warn "Unable to determine /tmp free space"
- fi
-
  # Check: netplan must be statically configured (no DHCP)
  # This validates that dhcp4/dhcp6 are not enabled in /etc/netplan/*.yaml.
  netplan_files=(/etc/netplan/*.yaml /etc/netplan/*.yml)
@@ -569,167 +749,7 @@
      fi
  fi
 
- # Check (recommended): Nested virtualization support
- if [[ -r /sys/module/kvm_intel/parameters/nested ]]; then
-     nested_intel=$(cat /sys/module/kvm_intel/parameters/nested 2>/dev/null)
-     if [[ "$nested_intel" == "Y" ]] || [[ "$nested_intel" == "1" ]]; then
-         pass "Nested virtualization enabled (Intel)"
-     else
-         warn "Nested virtualization disabled (Intel) - enable if running on VMs"
-     fi
- elif [[ -r /sys/module/kvm_amd/parameters/nested ]]; then
-     nested_amd=$(cat /sys/module/kvm_amd/parameters/nested 2>/dev/null)
-     if [[ "$nested_amd" == "Y" ]] || [[ "$nested_amd" == "1" ]]; then
-         pass "Nested virtualization enabled (AMD)"
-     else
-         warn "Nested virtualization disabled (AMD) - enable if running on VMs"
-     fi
- else
-     pass "Nested virtualization check skipped (not running on VM or KVM modules not loaded)"
- fi
-
- # Check (recommended): libvirt/qemu should not be pre-installed
- libvirt_installed=0
- if dpkg -s libvirt-daemon-system >/dev/null 2>&1 || dpkg -s libvirt-bin >/dev/null 2>&1; then
-     libvirt_installed=1
- fi
- if dpkg -s qemu-kvm >/dev/null 2>&1 || dpkg -s qemu-system-x86 >/dev/null 2>&1; then
-     libvirt_installed=1
- fi
-
- if [[ "$libvirt_installed" -eq 1 ]]; then
-     warn "libvirt or qemu packages detected (may conflict with PCD installation)"
- else
-     pass "No conflicting libvirt/qemu packages detected"
- fi
-
- san_present=0
- san_reasons=()
-
- if command -v multipath >/dev/null 2>&1; then
-     mp_out=$(multipath -ll 2>/dev/null)
-     if [[ -n "${mp_out:-}" ]] && ! echo "$mp_out" | grep -qiE '(^|[[:space:]])(no maps|no multipath)([[:space:]]|$)'; then
-         san_present=1
-         san_reasons+=("multipath maps detected")
-     fi
- else
-     if [[ -d /dev/mapper ]]; then
-         while IFS= read -r dm_name; do
-             [[ -n "$dm_name" ]] || continue
-             if udevadm info --query=property --name="/dev/mapper/$dm_name" 2>/dev/null | grep -qE '^DM_UUID=mpath-'; then
-                 san_present=1
-                 san_reasons+=("multipath device detected (/dev/mapper/$dm_name)")
-                 break
-             fi
-         done < <(ls -1 /dev/mapper 2>/dev/null | grep -v '^control$' || true)
-     fi
- fi
-
- if command -v iscsiadm >/dev/null 2>&1; then
-     iscsi_sessions=$(iscsiadm -m session 2>/dev/null || true)
-     if [[ -n "${iscsi_sessions:-}" ]]; then
-         san_present=1
-         san_reasons+=("active iSCSI sessions detected")
-     fi
- fi
-
- if [[ -d /sys/class/fc_host ]] && compgen -G "/sys/class/fc_host/host*" >/dev/null; then
-     fc_luns=$(lsblk -dn -o TRAN 2>/dev/null | awk '$1=="fc" {print; exit}')
-     if [[ -n "${fc_luns:-}" ]]; then
-         san_present=1
-         san_reasons+=("FC-attached LUNs appear to be visible")
-     fi
- fi
-
- if [[ "$san_present" -eq 1 ]]; then
-     fail "Preexisting SAN volumes detected on this host (${san_reasons[*]})"
- else
-     pass "No preexisting SAN volumes detected (iSCSI/FC/multipath)"
- fi
-
- # Check (recommended): iSCSI initiator name should not be default/template
- if [[ -r /etc/iscsi/initiatorname.iscsi ]]; then
-     initiator_name=$(grep -E '^InitiatorName=' /etc/iscsi/initiatorname.iscsi 2>/dev/null | cut -d= -f2)
-     if [[ -n "$initiator_name" ]]; then
-         is_default=0
-         if echo "$initiator_name" | grep -qE '^iqn\.1993-08\.org\.debian:01:'; then
-             is_default=1
-         elif echo "$initiator_name" | grep -qE '^iqn\.2004-10\.com\.ubuntu:01:'; then
-             is_default=1
-         elif echo "$initiator_name" | grep -qE ':(01|02):'; then
-             is_default=1
-         fi
-         
-         if [[ "$is_default" -eq 1 ]]; then
-             warn "iSCSI initiator name appears to be default/template: $initiator_name (verify uniqueness across all nodes)"
-         else
-             pass "iSCSI initiator name: $initiator_name"
-         fi
-     fi
- fi
-
- # Check (optional): iSCSI sendtargets discovery test against a portal
- if [[ -n "${iscsi_discovery_portal:-}" ]]; then
-     if command -v iscsiadm >/dev/null 2>&1; then
-         iscsi_discovery_cmd=(iscsiadm -m discovery -t sendtargets -p "$iscsi_discovery_portal")
-         if command -v timeout >/dev/null 2>&1; then
-             iscsi_discovery_out=$(timeout 10s "${iscsi_discovery_cmd[@]}" 2>&1)
-             iscsi_discovery_rc=$?
-             if [[ "$iscsi_discovery_rc" -eq 124 ]]; then
-                 iscsi_discovery_report="(timeout)"
-                 warn "iSCSI discovery timed out (portal: $iscsi_discovery_portal)"
-             elif [[ "$iscsi_discovery_rc" -ne 0 ]]; then
-                 iscsi_discovery_report="$iscsi_discovery_out"
-                 warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
-             else
-                 iscsi_discovery_report="$iscsi_discovery_out"
-                 iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
-                 if [[ "$iscsi_target_count" -gt 0 ]]; then
-                     pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
-                 else
-                     warn "iSCSI discovery returned no targets (portal: $iscsi_discovery_portal)"
-                 fi
-             fi
-         else
-             iscsi_discovery_out=$("${iscsi_discovery_cmd[@]}" 2>&1)
-             iscsi_discovery_rc=$?
-             if [[ "$iscsi_discovery_rc" -ne 0 ]]; then
-                 iscsi_discovery_report="$iscsi_discovery_out"
-                 warn "iSCSI discovery failed (portal: $iscsi_discovery_portal): $iscsi_discovery_out"
-             else
-                 iscsi_discovery_report="$iscsi_discovery_out"
-                 iscsi_target_count=$(printf '%s\n' "$iscsi_discovery_out" | grep -c 'iqn\.' || true)
-                 if [[ "$iscsi_target_count" -gt 0 ]]; then
-                     pass "iSCSI discovery succeeded (portal: $iscsi_discovery_portal, targets: $iscsi_target_count)"
-                 else
-                     warn "iSCSI discovery returned no targets (portal: $iscsi_discovery_portal)"
-                 fi
-             fi
-         fi
-     else
-         iscsi_discovery_report="iscsiadm not installed"
-         warn "iSCSI discovery skipped: iscsiadm not installed (portal: $iscsi_discovery_portal)"
-     fi
- fi
-
- # Check (recommended): If lvm2 is installed, LVM device filters should be configured
- # Ref: https://docs.platform9.com/private-cloud-director/getting-started/pre-requisites/hypervisor-lvm-configuration
- if dpkg -s lvm2 >/dev/null 2>&1; then
-     if [[ -r /etc/lvm/lvm.conf ]]; then
-         lvm_filter_line=$(grep -E '^[[:space:]]*filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1)
-         lvm_global_filter_line=$(grep -E '^[[:space:]]*global_filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1)
-
-         if [[ -z "$lvm_filter_line" ]]; then
-             fail "lvm2 detected but /etc/lvm/lvm.conf filter is not set (configure LVM device filters)"
-         fi
-
-         if [[ -z "$lvm_global_filter_line" ]]; then
-             fail "lvm2 detected but /etc/lvm/lvm.conf global_filter is not set (configure LVM device filters)"
-         fi
-     else
-         fail "lvm2 detected but /etc/lvm/lvm.conf is not readable; cannot validate LVM filter configuration"
-     fi
- fi
+ # ── Group 4: Outbound Connectivity ────────────────────────────────────────────
 
  # Check: Outbound connectivity for required endpoints (curl HEAD)
  # Ref: /opt/pf9/dependencies/urls.txt (full PCD deployment endpoint list)
@@ -813,17 +833,6 @@
          warn "Proxy in use but not configured for APT — run poc-prep.sh --proxy ${proxy_url} to persist it"
      fi
  fi
-
-# Optional check: multipath-tools package installed
-if [[ "$check_multipath" -eq 1 ]]; then
-    if dpkg -s multipath-tools >/dev/null 2>&1; then
-        pass "multipath-tools is installed"
-    else
-        fail "multipath-tools is NOT installed"
-    fi
-else
-    echo "Skipping multipath-tools check (enable with --check-multipath or -m)"
-fi
 
  # Collect system information for report if requested
  if [[ "$generate_report" -eq 1 ]]; then
