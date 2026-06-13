@@ -755,21 +755,26 @@
  )
 
  # Function to check URL accessibility
- # Uses --connect-timeout / --max-time to surface silent firewall drops quickly
- # (per PDF troubleshooting: blocked CDN endpoints appear as hangs, not errors)
+ # --fail is intentionally omitted: registry endpoints (docker.io, ghcr.io, quay.io, etc.)
+ # return 401/403 for unauthenticated HEAD requests, which is correct behaviour.
+ # curl only returns non-zero here for actual network errors (DNS, timeout, refused).
+ # Uses --connect-timeout / --max-time to surface silent firewall drops quickly.
  check_url() {
      local url="$1"
-     local -a curl_opts=(--output /dev/null --silent --head --fail --connect-timeout 10 --max-time 15)
+     local -a curl_opts=(--output /dev/null --silent --head --connect-timeout 10 --max-time 15)
      [[ -n "${proxy_url:-}" ]] && curl_opts+=(--proxy "$proxy_url")
-     if curl "${curl_opts[@]}" "$url"; then
+     curl "${curl_opts[@]}" "$url"
+     local rc=$?
+     if [[ $rc -eq 0 ]]; then
          pass "Reachable: $url"
+     elif [[ $rc -eq 28 ]]; then
+         fail "Timeout: $url (firewall may be silently dropping packets — request FQDN-based allow rule)"
+     elif [[ $rc -eq 6 ]]; then
+         fail "DNS resolution failed: $url"
+     elif [[ $rc -eq 7 ]]; then
+         fail "Connection refused: $url"
      else
-         local rc=$?
-         if [[ $rc -eq 28 ]]; then
-             fail "Timeout: $url (firewall may be silently dropping packets — request FQDN-based allow rule)"
-         else
-             fail "Unreachable: $url (curl exit $rc)"
-         fi
+         fail "Unreachable: $url (curl exit $rc)"
      fi
  }
 
