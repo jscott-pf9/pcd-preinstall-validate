@@ -62,6 +62,8 @@
     echo -e "\n\033[1;34m── $1\033[0m"
  }
 
+ section "Hardware & System"
+
  # Check: OS must be Ubuntu 22.04 or 24.04
  if [[ -r /etc/os-release ]]; then
      # shellcheck disable=SC1091
@@ -183,8 +185,6 @@
  if [[ -z "$proxy_url" ]]; then
      proxy_url="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
  fi
-
- section "Hardware & System"
 
  # Check: Platform9 PCD supports x86_64 hosts
  arch=$(uname -m)
