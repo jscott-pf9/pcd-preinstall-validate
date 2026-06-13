@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+VERSION="1.0"
+
 usage() {
+  echo "poc-prep.sh v${VERSION}"
   echo "Usage: $0 [OPTIONS]"
   echo ""
   echo "Options:"
@@ -16,6 +19,7 @@ usage() {
   echo "  --fallback-ntp-servers LIST       Space-separated fallback NTP servers for timesyncd (default: ntp.ubuntu.com)"
   echo "  --ensure-iscsi-initiator          Ensure iSCSI initiator name is hostname-based (default)"
   echo "  --no-ensure-iscsi-initiator       Do not modify iSCSI initiator name"
+  echo "  -V, --version                     Print version and exit"
   echo "  -h, --help                        Show help"
 }
 
@@ -530,6 +534,10 @@ while [[ $# -gt 0 ]]; do
     --no-ensure-iscsi-initiator)
       ensure_iscsi_initiator=0
       shift
+      ;;
+    -V|--version)
+      echo "poc-prep.sh v${VERSION}"
+      exit 0
       ;;
     -h|--help)
       usage

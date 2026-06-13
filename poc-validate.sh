@@ -11,6 +11,7 @@
  #   --pcd-url URL                  Test reachability of the environment-specific PCD management plane URL
  #   --proxy URL                    HTTP(S) proxy for outbound curl checks (e.g. http://proxy.corp:3128)
  #   -r, --report [FILE]            Generate validation report (default: pcd-validation-report.md)
+ #   -V, --version                  Print script version and exit
  #   --report-format FORMAT         text, json, or both (default: text)
  #   --iscsi-discovery IP[:PORT]    Optional iSCSI sendtargets discovery test (warns on failure)
  #   -h, --help                     Show usage
@@ -21,6 +22,7 @@
  #   2  Invalid arguments
 
  check_multipath=0
+ VERSION="2.1"
  fail_count=0
  generate_report=0
  report_format="text"
@@ -74,6 +76,7 @@
 
  # CLI usage
  usage() {
+    echo "poc-validate.sh v${VERSION}"
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
@@ -83,6 +86,7 @@
     echo "  -r, --report [FILE]            Generate report (default: pcd-validation-report.md)"
     echo "  --report-format FORMAT         Report format: text, json, or both (default: text)"
     echo "  --iscsi-discovery IP[:PORT]    Optional: iSCSI sendtargets discovery test (warns on failure)"
+    echo "  -V, --version                  Print version and exit"
     echo "  -h, --help                     Show this help message"
     echo ""
     echo "Examples:"
@@ -149,6 +153,10 @@
                  echo "Error: --iscsi-discovery requires an argument (IP[:PORT])"
                  exit 2
              fi
+             ;;
+         -V|--version)
+             echo "poc-validate.sh v${VERSION}"
+             exit 0
              ;;
          -h|--help)
              usage
@@ -1059,7 +1067,7 @@ if [[ "$generate_report" -eq 1 ]]; then
             echo "    \"generated_at\": \"$timestamp\","
             echo "    \"hostname\": \"$hostname\","
             echo "    \"os\": \"${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}\","
-            echo "    \"script_version\": \"2.0\""
+            echo "    \"script_version\": \"${VERSION}\""
             echo "  },"
             echo "  \"summary\": {"
             
