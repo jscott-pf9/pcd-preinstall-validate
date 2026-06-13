@@ -58,6 +58,10 @@
     fi
  }
 
+ section() {
+    echo -e "\n\033[1;34m── $1\033[0m"
+ }
+
  # Check: OS must be Ubuntu 22.04 or 24.04
  if [[ -r /etc/os-release ]]; then
      # shellcheck disable=SC1091
@@ -180,7 +184,7 @@
      proxy_url="${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
  fi
 
- # ── Group 1: Hardware & System ───────────────────────────────────────────────
+ section "Hardware & System"
 
  # Check: Platform9 PCD supports x86_64 hosts
  arch=$(uname -m)
@@ -354,7 +358,7 @@
      pass "No conflicting libvirt/qemu packages detected"
  fi
 
- # ── Group 2: Storage & SAN ────────────────────────────────────────────────────
+ section "Storage & SAN"
 
  # Check: Root filesystem type
  root_fstype=$(df -T / | awk 'NR==2 {print $2}')
@@ -557,7 +561,7 @@
      echo "Skipping multipath-tools check (enable with --check-multipath or -m)"
  fi
 
- # ── Group 3: Network & Services ───────────────────────────────────────────────
+ section "Network & Services"
 
  # Check: cloud-init must be disabled
  # If cloud-init is enabled it can overwrite network configuration and break static netplan.
@@ -749,7 +753,7 @@
      fi
  fi
 
- # ── Group 4: Outbound Connectivity ────────────────────────────────────────────
+ section "Outbound Connectivity"
 
  # Check: Outbound connectivity for required endpoints (curl HEAD)
  # Ref: /opt/pf9/dependencies/urls.txt (full PCD deployment endpoint list)
