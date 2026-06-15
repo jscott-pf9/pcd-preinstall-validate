@@ -19,6 +19,9 @@ usage() {
   echo "  --fallback-ntp-servers LIST       Space-separated fallback NTP servers for timesyncd (default: ntp.ubuntu.com)"
   echo "  --ensure-iscsi-initiator          Ensure iSCSI initiator name is hostname-based (default)"
   echo "  --no-ensure-iscsi-initiator       Do not modify iSCSI initiator name"
+  echo "  --configure-lvm-filter            Configure LVM device filters for boot disk topology (default)"
+  echo "  --no-configure-lvm-filter         Skip LVM filter configuration"
+  echo "  --rebuild-initramfs               Rebuild initramfs after writing LVM filter (required for boot-from-SAN)"
   echo "  -V, --version                     Print version and exit"
   echo "  -h, --help                        Show help"
 }
@@ -456,9 +459,145 @@ ensure_iscsi_initiator() {
   fi
 }
 
+_lvm_classify_pv() {
+  local pv="$1" chain tran is_mpath=0 is_san=0
+  case "$pv" in
+    /dev/mapper/*|/dev/dm-*) is_mpath=1 ;;
+  esac
+  chain=$(lsblk -s -no NAME,TYPE "$pv" 2>/dev/null || true)
+  if printf '%s\n' "$chain" | awk '{print $2}' | grep -qi '^mpath$'; then
+    is_mpath=1
+  fi
+  while read -r disk; do
+    [ -n "$disk" ] || continue
+    tran=$(lsblk -dno TRAN "/dev/$disk" 2>/dev/null | tr -d '[:space:]')
+    case "$tran" in
+      fc|iscsi|fcoe) is_san=1 ;;
+    esac
+  done < <(printf '%s\n' "$chain" | awk '$2=="disk"{print $1}')
+  if [ "$is_mpath" -eq 0 ] && command -v multipath >/dev/null 2>&1; then
+    if multipath -ll 2>/dev/null | grep -q .; then
+      while read -r disk; do
+        [ -n "$disk" ] || continue
+        local wwid
+        wwid=$(/lib/udev/scsi_id -g -u -d "/dev/$disk" 2>/dev/null || true)
+        if [ -n "$wwid" ] && grep -qF "$wwid" /etc/multipath/wwids 2>/dev/null; then
+          is_mpath=1; is_san=1
+        fi
+      done < <(printf '%s\n' "$chain" | awk '$2=="disk"{print $1}')
+    fi
+  fi
+  if [ "$is_mpath" -eq 1 ] || [ "$is_san" -eq 1 ]; then echo san; else echo local; fi
+}
+
+configure_lvm_filter() {
+  if [[ "$do_configure_lvm_filter" -eq 0 ]]; then
+    ok "LVM filter configuration skipped (--no-configure-lvm-filter)"
+    return 0
+  fi
+
+  if ! dpkg -s lvm2 >/dev/null 2>&1; then
+    ok "lvm2 not installed; skipping LVM filter configuration"
+    return 0
+  fi
+
+  local LVM_CONF=/etc/lvm/lvm.conf
+  [[ -f "$LVM_CONF" ]] || { err "$LVM_CONF not found"; return 1; }
+
+  local root_src vg="" pvs_list=() verdict=local local_disks=()
+  root_src=$(findmnt -no SOURCE / 2>/dev/null) || { err "cannot determine root source"; return 1; }
+
+  if lvs "$root_src" >/dev/null 2>&1; then
+    vg=$(lvs --noheadings -o vg_name "$root_src" 2>/dev/null | tr -d '[:space:]')
+    while read -r pv; do
+      [[ -n "$pv" ]] && pvs_list+=("$pv")
+    done < <(pvs --noheadings -o pv_name -S vg_name="$vg" 2>/dev/null \
+             | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  else
+    pvs_list+=("$root_src")
+  fi
+
+  local _pv _c _disk
+  for _pv in "${pvs_list[@]}"; do
+    _c=$(_lvm_classify_pv "$_pv")
+    if [[ "$_c" == "san" ]]; then
+      verdict=san
+    else
+      while read -r _disk; do
+        [[ -n "$_disk" ]] && local_disks+=("/dev/$_disk")
+      done < <(lsblk -s -no NAME,TYPE "$_pv" 2>/dev/null | awk '$2=="disk"{print $1}')
+    fi
+  done
+
+  local FILTER
+  if [[ "$verdict" == "san" ]]; then
+    FILTER='[ "a|^/dev/mapper/|", "r|.*|" ]'
+  else
+    local accepts="" _d
+    declare -A _seen=()
+    for _d in "${local_disks[@]:-}"; do
+      [[ -n "${_seen[$_d]:-}" ]] && continue
+      _seen[$_d]=1
+      accepts="${accepts}\"a|^${_d}|\", "
+    done
+    [[ -n "$accepts" ]] || accepts='"a|^/dev/sda|", '
+    FILTER="[ ${accepts}\"r|.*|\" ]"
+  fi
+
+  # pre-write in-memory test
+  if [[ -n "$vg" ]]; then
+    if ! vgs --config "devices { filter = $FILTER global_filter = $FILTER }" \
+         --noheadings -o vg_name "$vg" 2>/dev/null | tr -d '[:space:]' | grep -qx "$vg"; then
+      err "LVM filter pre-write test failed: candidate filter hides root VG. Refusing to write."
+      return 1
+    fi
+  fi
+
+  local ts backup
+  ts=$(date +%Y%m%d-%H%M%S)
+  backup="${LVM_CONF}.bak.${ts}"
+  cp -a "$LVM_CONF" "$backup"
+
+  python3 - "$LVM_CONF" "$FILTER" <<'PY'
+import re, sys
+path, flt = sys.argv[1], sys.argv[2]
+src = open(path).read()
+def sub_or_insert(text, key, value):
+    pat = re.compile(r'^\s*#?\s*%s\s*=.*$' % re.escape(key), re.M)
+    line = "\t%s = %s" % (key, value)
+    if pat.search(text):
+        return pat.sub(line, text, count=1)
+    return re.sub(r'(devices\s*\{)', r'\1\n' + line, text, count=1)
+for key in ("filter", "global_filter"):
+    src = sub_or_insert(src, key, flt)
+open(path, "w").write(src)
+PY
+
+  # post-write verify
+  if [[ -n "$vg" ]]; then
+    if ! pvs >/dev/null 2>&1 || ! vgs --noheadings -o vg_name "$vg" 2>/dev/null \
+         | tr -d '[:space:]' | grep -qx "$vg"; then
+      cp -a "$backup" "$LVM_CONF"
+      err "LVM filter post-write verify failed; rolled back from $backup"
+      return 1
+    fi
+  fi
+
+  ok "LVM filter configured (${verdict} boot disk): ${FILTER}"
+
+  if [[ "$rebuild_initramfs" -eq 1 ]]; then
+    update-initramfs -u -k all
+    ok "initramfs rebuilt"
+  else
+    warn "initramfs not rebuilt — re-run with --rebuild-initramfs before next reboot if this is a boot-from-SAN host"
+  fi
+}
+
 disable_cloud_init_network=1
 enable_chrony=1
 ensure_iscsi_initiator=1
+do_configure_lvm_filter=1
+rebuild_initramfs=0
 run_netplan_wizard=0
 netplan_file="/etc/netplan/01-netcfg.yaml"
 ntp_servers="0.pool.ntp.org 1.pool.ntp.org"
@@ -535,6 +674,18 @@ while [[ $# -gt 0 ]]; do
       ensure_iscsi_initiator=0
       shift
       ;;
+    --configure-lvm-filter)
+      do_configure_lvm_filter=1
+      shift
+      ;;
+    --no-configure-lvm-filter)
+      do_configure_lvm_filter=0
+      shift
+      ;;
+    --rebuild-initramfs)
+      rebuild_initramfs=1
+      shift
+      ;;
     -V|--version)
       echo "poc-prep.sh v${SCRIPT_VERSION}"
       exit 0
@@ -561,6 +712,7 @@ ensure_ssh_active
 disable_cloud_init_networking
 setup_chrony
 ensure_iscsi_initiator
+configure_lvm_filter
 
 if [[ "$run_netplan_wizard" -eq 1 ]]; then
   netplan_wizard

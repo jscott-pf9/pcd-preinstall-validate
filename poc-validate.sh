@@ -421,22 +421,95 @@
      warn "Swap not configured (recommended)"
  fi
 
- # Check (recommended): If lvm2 is installed, LVM device filters should be configured
+ # Check: If lvm2 is installed, LVM device filters must be set and match the boot disk topology
  # Ref: https://docs.platform9.com/private-cloud-director/getting-started/pre-requisites/hypervisor-lvm-configuration
  if dpkg -s lvm2 >/dev/null 2>&1; then
-     if [[ -r /etc/lvm/lvm.conf ]]; then
-         lvm_filter_line=$(grep -E '^[[:space:]]*filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1)
-         lvm_global_filter_line=$(grep -E '^[[:space:]]*global_filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1)
-
-         if [[ -z "$lvm_filter_line" ]]; then
-             fail "lvm2 detected but /etc/lvm/lvm.conf filter is not set (configure LVM device filters)"
+     # classify_pv: walks lsblk dependency chain; returns "san" or "local"
+     _classify_pv() {
+         local pv="$1" base chain tran is_mpath=0 is_san=0
+         base=$(basename "$pv")
+         case "$pv" in
+             /dev/mapper/*|/dev/dm-*) is_mpath=1 ;;
+         esac
+         chain=$(lsblk -s -no NAME,TYPE "$pv" 2>/dev/null || true)
+         if printf '%s\n' "$chain" | awk '{print $2}' | grep -qi '^mpath$'; then
+             is_mpath=1
          fi
-
-         if [[ -z "$lvm_global_filter_line" ]]; then
-             fail "lvm2 detected but /etc/lvm/lvm.conf global_filter is not set (configure LVM device filters)"
+         while read -r disk; do
+             [ -n "$disk" ] || continue
+             tran=$(lsblk -dno TRAN "/dev/$disk" 2>/dev/null | tr -d '[:space:]')
+             case "$tran" in
+                 fc|iscsi|fcoe) is_san=1 ;;
+             esac
+         done < <(printf '%s\n' "$chain" | awk '$2=="disk"{print $1}')
+         if [ "$is_mpath" -eq 0 ] && command -v multipath >/dev/null 2>&1; then
+             if multipath -ll 2>/dev/null | grep -q .; then
+                 while read -r disk; do
+                     [ -n "$disk" ] || continue
+                     local wwid
+                     wwid=$(/lib/udev/scsi_id -g -u -d "/dev/$disk" 2>/dev/null || true)
+                     if [ -n "$wwid" ] && grep -qF "$wwid" /etc/multipath/wwids 2>/dev/null; then
+                         is_mpath=1; is_san=1
+                     fi
+                 done < <(printf '%s\n' "$chain" | awk '$2=="disk"{print $1}')
+             fi
          fi
+         if [ "$is_mpath" -eq 1 ] || [ "$is_san" -eq 1 ]; then echo san; else echo local; fi
+     }
+
+     lvm_root_src=$(findmnt -no SOURCE / 2>/dev/null || true)
+     lvm_vg=""
+     lvm_pvs=()
+     if [[ -n "$lvm_root_src" ]] && lvs "$lvm_root_src" >/dev/null 2>&1; then
+         lvm_vg=$(lvs --noheadings -o vg_name "$lvm_root_src" 2>/dev/null | tr -d '[:space:]')
+         while read -r pv; do
+             [[ -n "$pv" ]] && lvm_pvs+=("$pv")
+         done < <(pvs --noheadings -o pv_name -S vg_name="$lvm_vg" 2>/dev/null \
+                  | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
      else
-         fail "lvm2 detected but /etc/lvm/lvm.conf is not readable; cannot validate LVM filter configuration"
+         [[ -n "$lvm_root_src" ]] && lvm_pvs+=("$lvm_root_src")
+     fi
+
+     lvm_verdict=local
+     lvm_local_disks=()
+     for _pv in "${lvm_pvs[@]:-}"; do
+         _c=$(_classify_pv "$_pv")
+         if [[ "$_c" == "san" ]]; then
+             lvm_verdict=san
+         else
+             while read -r _disk; do
+                 [[ -n "$_disk" ]] && lvm_local_disks+=("/dev/$_disk")
+             done < <(lsblk -s -no NAME,TYPE "$_pv" 2>/dev/null | awk '$2=="disk"{print $1}')
+         fi
+     done
+
+     if [[ "$lvm_verdict" == "san" ]]; then
+         lvm_expected_filter='[ "a|^/dev/mapper/|", "r|.*|" ]'
+     else
+         _accepts=""
+         declare -A _seen=()
+         for _d in "${lvm_local_disks[@]:-}"; do
+             [[ -n "${_seen[$_d]:-}" ]] && continue
+             _seen[$_d]=1
+             _accepts="${_accepts}\"a|^${_d}|\", "
+         done
+         [[ -n "$_accepts" ]] || _accepts='"a|^/dev/sda|", '
+         lvm_expected_filter="[ ${_accepts}\"r|.*|\" ]"
+     fi
+
+     if [[ ! -r /etc/lvm/lvm.conf ]]; then
+         fail "lvm2 detected but /etc/lvm/lvm.conf is not readable"
+     else
+         lvm_filter_val=$(grep -E '^[[:space:]]*filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1 | sed 's/^[^=]*=[[:space:]]*//')
+         lvm_gfilter_val=$(grep -E '^[[:space:]]*global_filter[[:space:]]*=' /etc/lvm/lvm.conf | head -n 1 | sed 's/^[^=]*=[[:space:]]*//')
+
+         if [[ -z "$lvm_filter_val" ]] || [[ -z "$lvm_gfilter_val" ]]; then
+             fail "LVM filter not configured (${lvm_verdict} boot disk detected; run poc-prep.sh to set: ${lvm_expected_filter})"
+         elif [[ "$lvm_filter_val" == "$lvm_expected_filter" ]] && [[ "$lvm_gfilter_val" == "$lvm_expected_filter" ]]; then
+             pass "LVM filter correct for ${lvm_verdict} boot disk: ${lvm_filter_val}"
+         else
+             warn "LVM filter set but may not match topology (${lvm_verdict} boot disk detected; expected: ${lvm_expected_filter}; got filter=${lvm_filter_val})"
+         fi
      fi
  fi
 
