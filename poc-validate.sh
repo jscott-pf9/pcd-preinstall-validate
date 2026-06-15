@@ -22,7 +22,7 @@
  #   2  Invalid arguments
 
  check_multipath=0
- SCRIPT_VERSION="2.3"
+ SCRIPT_VERSION="2.4"
  fail_count=0
  generate_report=0
  report_format="text"
@@ -430,7 +430,7 @@
          if lsblk -dno TYPE "$pv" 2>/dev/null | grep -qi '^mpath$'; then
              is_mpath=1
          fi
-         chain=$(lsblk -s -no NAME,TYPE "$pv" 2>/dev/null || true)
+         chain=$(lsblk -s -rno NAME,TYPE "$pv" 2>/dev/null || true)
          if printf '%s\n' "$chain" | awk '{print $2}' | grep -qi '^mpath$'; then
              is_mpath=1
          fi
@@ -458,7 +458,7 @@
      if [[ "${#lvm_pvs[@]}" -eq 0 ]] && [[ -n "$lvm_root_src" ]]; then
          while read -r _disk; do
              [[ -n "$_disk" ]] && lvm_pvs+=("/dev/$_disk")
-         done < <(lsblk -s -no NAME,TYPE "$lvm_root_src" 2>/dev/null | awk '$2=="disk"{print $1}')
+         done < <(lsblk -s -rno NAME,TYPE "$lvm_root_src" 2>/dev/null | awk '$2=="disk"{print $1}')
      fi
      # Last resort: add root source itself (rare — only if lsblk also found nothing)
      if [[ "${#lvm_pvs[@]}" -eq 0 ]] && [[ -n "$lvm_root_src" ]]; then
@@ -474,7 +474,7 @@
          else
              while read -r _disk; do
                  [[ -n "$_disk" ]] && lvm_local_disks+=("/dev/$_disk")
-             done < <(lsblk -s -no NAME,TYPE "$_pv" 2>/dev/null | awk '$2=="disk"{print $1}')
+             done < <(lsblk -s -rno NAME,TYPE "$_pv" 2>/dev/null | awk '$2=="disk"{print $1}')
          fi
      done
 
