@@ -475,18 +475,6 @@ _lvm_classify_pv() {
       fc|iscsi|fcoe) is_san=1 ;;
     esac
   done < <(printf '%s\n' "$chain" | awk '$2=="disk"{print $1}')
-  if [ "$is_mpath" -eq 0 ] && command -v multipath >/dev/null 2>&1; then
-    if multipath -ll 2>/dev/null | grep -q .; then
-      while read -r disk; do
-        [ -n "$disk" ] || continue
-        local wwid
-        wwid=$(/lib/udev/scsi_id -g -u -d "/dev/$disk" 2>/dev/null || true)
-        if [ -n "$wwid" ] && grep -qF "$wwid" /etc/multipath/wwids 2>/dev/null; then
-          is_mpath=1; is_san=1
-        fi
-      done < <(printf '%s\n' "$chain" | awk '$2=="disk"{print $1}')
-    fi
-  fi
   if [ "$is_mpath" -eq 1 ] || [ "$is_san" -eq 1 ]; then echo san; else echo local; fi
 }
 
