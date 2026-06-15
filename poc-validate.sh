@@ -22,7 +22,7 @@
  #   2  Invalid arguments
 
  check_multipath=0
- SCRIPT_VERSION="2.2"
+ SCRIPT_VERSION="2.3"
  fail_count=0
  generate_report=0
  report_format="text"
