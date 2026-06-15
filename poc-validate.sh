@@ -426,11 +426,10 @@
  if dpkg -s lvm2 >/dev/null 2>&1; then
      # classify_pv: walks lsblk dependency chain; returns "san" or "local"
      _classify_pv() {
-         local pv="$1" base chain tran is_mpath=0 is_san=0
-         base=$(basename "$pv")
-         case "$pv" in
-             /dev/mapper/*|/dev/dm-*) is_mpath=1 ;;
-         esac
+         local pv="$1" chain tran is_mpath=0 is_san=0
+         if lsblk -dno TYPE "$pv" 2>/dev/null | grep -qi '^mpath$'; then
+             is_mpath=1
+         fi
          chain=$(lsblk -s -no NAME,TYPE "$pv" 2>/dev/null || true)
          if printf '%s\n' "$chain" | awk '{print $2}' | grep -qi '^mpath$'; then
              is_mpath=1
@@ -454,8 +453,16 @@
              [[ -n "$pv" ]] && lvm_pvs+=("$pv")
          done < <(pvs --noheadings -o pv_name -S vg_name="$lvm_vg" 2>/dev/null \
                   | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-     else
-         [[ -n "$lvm_root_src" ]] && lvm_pvs+=("$lvm_root_src")
+     fi
+     # If LVM tools didn't resolve PVs, walk the DM device tree with lsblk to find backing disks
+     if [[ "${#lvm_pvs[@]}" -eq 0 ]] && [[ -n "$lvm_root_src" ]]; then
+         while read -r _disk; do
+             [[ -n "$_disk" ]] && lvm_pvs+=("/dev/$_disk")
+         done < <(lsblk -s -no NAME,TYPE "$lvm_root_src" 2>/dev/null | awk '$2=="disk"{print $1}')
+     fi
+     # Last resort: add root source itself (rare — only if lsblk also found nothing)
+     if [[ "${#lvm_pvs[@]}" -eq 0 ]] && [[ -n "$lvm_root_src" ]]; then
+         lvm_pvs+=("$lvm_root_src")
      fi
 
      lvm_verdict=local
